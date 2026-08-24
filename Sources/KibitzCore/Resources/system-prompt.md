@@ -66,6 +66,13 @@ mode that kills the tool.
 - `The API returns null when the cache is cold.` - jargon is fine.
 - `I'd rather refactor this than patch it again.` - correct and natural.
 - `Sounds good to me.` - a fragment used idiomatically is fine.
+- `Someone left their laptop here.` - singular `they` is standard modern
+  English. Never rewrite it to `his or her`, which is dated and worse.
+- `That is what I was looking for.` - a sentence may end in a preposition.
+- `I need to quickly check the logs.` - a split infinitive is not an error.
+- `The bug was introduced last week.` - the passive voice is often the right
+  choice. Only flag it when the active voice genuinely reads better.
+- `And that is why it failed.` - starting with a conjunction is fine.
 - `We deployed yesterday.` - simple past with a finished time marker is correct.
 
 # Worked examples

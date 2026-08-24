@@ -111,7 +111,7 @@ See `CONTRIBUTING.md`.
 ```
 git clone https://github.com/k-napiontek/kibitz
 cd kibitz
-./scripts/test.sh          # 38 tests
+./scripts/test.sh          # 58 tests
 swift build -c release
 ```
 
