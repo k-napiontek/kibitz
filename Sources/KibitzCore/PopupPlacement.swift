@@ -185,6 +185,9 @@ public enum PopupPlacement {
         // so the correction and its explanation are the part that stays readable.
         result.y = highest >= lowest ? min(max(result.y, lowest), highest) : highest
 
-        return result
+        // Whole points, so the origin computed here is the origin AppKit places.
+        // A half point survives centring on an odd width, and AppKit snaps it
+        // silently, which makes the diagnostics disagree with themselves.
+        return CGPoint(x: result.x.rounded(), y: result.y.rounded())
     }
 }

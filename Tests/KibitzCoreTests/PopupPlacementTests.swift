@@ -190,6 +190,21 @@ struct PopupPlacementTests {
         #expect(point == CGPoint(x: 535, y: 960))
     }
 
+    @Test("a fractional centre is rounded to whole points")
+    func aFractionalCentreIsRounded() {
+        // Chrome's omnibox is an odd number of points wide, so centring lands on
+        // a half point. AppKit snaps that itself when placing the panel, which
+        // makes the computed origin and the placed frame disagree in the log and
+        // costs the invariant those lines exist to prove.
+        let anchor = TextAnchor(rect: CGRect(x: 171, y: 82, width: 1181, height: 24), source: .fieldFrame)
+
+        let point = PopupPlacement.topLeft(
+            panelSize: panel, anchor: anchor, layout: ScreenLayout(screens: [primary])
+        )
+
+        #expect(point == CGPoint(x: 542, y: 960))
+    }
+
     @Test("a window anchor sits inside the bottom of that window")
     func aWindowAnchorSitsInsideTheWindow() {
         let anchor = TextAnchor(rect: CGRect(x: 100, y: 100, width: 800, height: 600), source: .window)
