@@ -46,6 +46,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // without a record of whether the hotkey even fired is guesswork.
         logger.notice("kibitz launched")
         DiagnosticLog.write("=== launched ===")
+        PopupController.clearLegacyPinnedPosition()
         setUpStatusItem()
         setUpProvider()
         // A correction is only applicable while it is on screen.
@@ -162,7 +163,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             popup.show(
                 verdict: verdict,
                 original: sentence,
-                at: reader.caretRect(),
+                at: reader.anchorRect(),
                 hotkeyLabel: hotkeyLabel
             ) { [weak self] in
                 guard let self, let pending = self.pending else { return }

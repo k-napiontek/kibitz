@@ -10,6 +10,9 @@ struct PopupView: View {
     let original: String
     let hotkeyLabel: String
     let onApply: () -> Void
+    let onDismiss: () -> Void
+    let onDragChanged: (CGSize) -> Void
+    let onDragEnded: () -> Void
 
     private var spans: [SentenceDiff.Span] {
         SentenceDiff.spans(original: original, corrected: verdict.corrected)
@@ -32,6 +35,15 @@ struct PopupView: View {
         .overlay(
             RoundedRectangle(cornerRadius: 12)
                 .strokeBorder(.separator, lineWidth: 0.5)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: 12))
+        // simultaneousGesture so Apply and dismiss still receive their taps.
+        // NSHostingView swallows the mouse events an AppKit window drag needs,
+        // so the move has to be driven from here.
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 3, coordinateSpace: .global)
+                .onChanged { onDragChanged($0.translation) }
+                .onEnded { _ in onDragEnded() }
         )
     }
 
@@ -68,6 +80,13 @@ struct PopupView: View {
             }
             .buttonStyle(.borderless)
             .foregroundStyle(.tint)
+
+            Button(action: onDismiss) {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.tertiary)
+            }
+            .buttonStyle(.plain)
+            .help("Dismiss")
         }
     }
 }
