@@ -1,0 +1,8 @@
+{
+  "_comment": "Observed from claude -p on 2026-08-24. The model wrapped its reply in a markdown fence despite the prompt forbidding it. Preserved verbatim as a regression test; fencing is intermittent, so a freshly captured fixture may not reproduce it.",
+  "is_error": false,
+  "duration_api_ms": 2663,
+  "total_cost_usd": 0.0314536,
+  "usage": { "cache_read_input_tokens": 15558 },
+  "result": "```json\n{\"verdict\":\"ok\",\"category\":\"none\",\"severity\":\"low\",\"corrected\":\"I pushed the fix to main and the pipeline is green.\",\"why_l1\":\"\"}\n```"
+}
