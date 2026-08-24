@@ -25,6 +25,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Set while a correction is on screen, so pressing the hotkey again applies
     /// it rather than starting a second check.
     private var pending: PendingCorrection?
+    /// Guards against overlapping checks. Two concurrent CLI processes competed
+    /// badly enough to stretch a five second check to thirty seven.
+    private var checkInFlight = false
 
     private struct PendingCorrection {
         let verdict: Verdict
@@ -45,6 +48,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DiagnosticLog.write("=== launched ===")
         setUpStatusItem()
         setUpProvider()
+        // A correction is only applicable while it is on screen.
+        popup.onHide = { [weak self] in self?.pending = nil }
         hotkeys.register { [weak self] in
             Task { @MainActor in self?.hotkeyPressed() }
         }
@@ -68,20 +73,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func hotkeyPressed() {
         logger.notice("hotkey pressed")
-        lastEvent = "Hotkey pressed, checking..."
+
         // Second press applies what is already on screen.
         if let pending, popup.isVisible {
             apply(pending)
             return
         }
-        guard case .checking = state else {
-            Task { await check() }
+        guard !checkInFlight else {
+            lastEvent = "Already checking, one moment"
+            DiagnosticLog.write("hotkey: ignored, a check is already running")
             return
         }
+        lastEvent = "Checking..."
+        Task { await check() }
     }
 
     private func check() async {
         DiagnosticLog.write("check: begin")
+        checkInFlight = true
+        defer { checkInFlight = false }
         guard let provider else {
             // Returning silently here is what made this look like a hang: the menu
             // sat on "Checking..." while nothing was running.
@@ -93,7 +103,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         state = .checking
         popup.hide()
 
-        DiagnosticLog.write("check: trusted=\(AXIsProcessTrusted()) reading focused element")
+        // Without this, a denied permission looks identical to an app that
+        // exposes no text, and the app reports the wrong cause.
+        guard AXIsProcessTrusted() else {
+            DiagnosticLog.write("check: NOT TRUSTED for accessibility")
+            lastEvent = "No Accessibility permission. Open the menu item below."
+            state = .error("kibitz needs Accessibility permission")
+            requestAccessibilityIfNeeded()
+            return
+        }
+
+        DiagnosticLog.write("check: trusted=true reading focused element")
         let focused = reader.read()
         DiagnosticLog.write("""
             check: read app=\(focused.appBundleID) secure=\(focused.isSecureField)             valueChars=\(focused.value?.count ?? -1) selChars=\(focused.selectedText?.count ?? -1)             caret=\(focused.caretOffset.map(String.init) ?? "nil")
@@ -216,6 +236,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func checkNow() {
+        guard !checkInFlight else {
+            lastEvent = "Already checking, one moment"
+            return
+        }
         lastEvent = "Checking..."
         Task { await check() }
     }

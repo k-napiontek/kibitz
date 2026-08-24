@@ -14,7 +14,9 @@ final class PopupController {
     private var panel: NSPanel?
     private var dismissTask: Task<Void, Never>?
 
-    private let autoDismiss: Duration = .seconds(8)
+    /// Long enough to read a correction and an explanation in a second language,
+    /// and decide. Eight seconds was not: it vanished mid-read.
+    private let autoDismiss: Duration = .seconds(25)
 
     func show(
         verdict: Verdict,
@@ -61,11 +63,17 @@ final class PopupController {
         }
     }
 
+    /// Called when the panel goes away for any reason, so the caller can drop
+    /// the correction it was holding.
+    var onHide: (() -> Void)?
+
     func hide() {
+        let wasVisible = panel != nil
         dismissTask?.cancel()
         dismissTask = nil
         panel?.orderOut(nil)
         panel = nil
+        if wasVisible { onHide?() }
     }
 
     var isVisible: Bool { panel != nil }
