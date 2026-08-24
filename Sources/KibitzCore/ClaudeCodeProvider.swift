@@ -49,12 +49,12 @@ public struct ClaudeCodeProvider: ModelProvider {
     /// Returns the full response so callers can record real cost and latency
     /// rather than estimating them.
     public func run(sentence: String, previous: String?) async throws -> ClaudeCodeResponse {
-        let output = try await Subprocess.run(
+        let result = try await Subprocess.run(
             executable: executableURL,
             arguments: arguments(for: sentence, previous: previous),
-            timeout: .seconds(15)
+            timeout: .seconds(60)
         )
-        return try ClaudeCodeResponseParser.parse(output)
+        return try ClaudeCodeResponseParser.parse(result.stdout)
     }
 
     private var executableURL: URL {
@@ -62,38 +62,110 @@ public struct ClaudeCodeProvider: ModelProvider {
     }
 }
 
-enum SubprocessError: Error, Equatable {
-    case timedOut
+public enum SubprocessError: Error, Equatable {
     case launchFailed(String)
+    /// Carries what was actually received. Returning partial output as if it
+    /// were whole surfaced later as a confusing parse failure instead.
+    case timedOut(seconds: Double, bytesReceived: Int, stderr: String)
+    case nonZeroExit(code: Int32, stderr: String)
+}
+
+struct SubprocessResult: Sendable {
+    let stdout: Data
+    let stderr: String
+    let exitCode: Int32
 }
 
 enum Subprocess {
     /// Runs a process to completion, killing it if it outruns the timeout.
-    static func run(executable: URL, arguments: [String], timeout: Duration) async throws -> Data {
+    ///
+    /// Both pipes are drained concurrently. Draining only stdout lets a child
+    /// that writes more than a pipe buffer to stderr block forever on write,
+    /// so stdout never reaches EOF and the call hangs until the watchdog fires.
+    static func run(
+        executable: URL,
+        arguments: [String],
+        timeout: Duration
+    ) async throws -> SubprocessResult {
         let process = Process()
         process.executableURL = executable
         process.arguments = arguments
 
-        let stdout = Pipe()
-        process.standardOutput = stdout
-        process.standardError = Pipe()
+        let outPipe = Pipe()
+        let errPipe = Pipe()
+        process.standardOutput = outPipe
+        process.standardError = errPipe
 
+        let started = Date()
         do {
             try process.run()
         } catch {
             throw SubprocessError.launchFailed(String(describing: error))
         }
 
+        let killed = FlagBox()
         let watchdog = Task {
             try await Task.sleep(for: timeout)
-            if process.isRunning { process.terminate() }
+            if process.isRunning {
+                killed.value = true
+                process.terminate()
+            }
         }
         defer { watchdog.cancel() }
 
-        let data = try stdout.fileHandleForReading.readToEnd() ?? Data()
-        process.waitUntilExit()
+        // Both reads run concurrently, so neither pipe can back up on the other.
+        async let outData = readToEnd(outPipe.fileHandleForReading)
+        async let errData = readToEnd(errPipe.fileHandleForReading)
+        let (out, err) = await (outData, errData)
+        await waitForExit(process)
+        let timedOut = killed.value
 
-        if data.isEmpty { throw SubprocessError.timedOut }
-        return data
+        let stderrText = String(decoding: err, as: UTF8.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if timedOut {
+            throw SubprocessError.timedOut(
+                seconds: Date().timeIntervalSince(started),
+                bytesReceived: out.count,
+                stderr: String(stderrText.prefix(500))
+            )
+        }
+        guard process.terminationStatus == 0 else {
+            throw SubprocessError.nonZeroExit(
+                code: process.terminationStatus,
+                stderr: String(stderrText.prefix(500))
+            )
+        }
+        return SubprocessResult(
+            stdout: out,
+            stderr: stderrText,
+            exitCode: process.terminationStatus
+        )
     }
+}
+
+/// Waits off the cooperative pool. `waitUntilExit` blocks its thread, and
+/// blocking pool threads starves the continuations that the pipe reads resume
+/// on, which deadlocks as soon as a few of these run concurrently.
+private func waitForExit(_ process: Process) async {
+    await withCheckedContinuation { continuation in
+        DispatchQueue.global(qos: .userInitiated).async {
+            process.waitUntilExit()
+            continuation.resume()
+        }
+    }
+}
+
+/// Reads a pipe to EOF off the cooperative pool, since `readToEnd` blocks.
+private func readToEnd(_ handle: FileHandle) async -> Data {
+    await withCheckedContinuation { continuation in
+        DispatchQueue.global(qos: .userInitiated).async {
+            continuation.resume(returning: (try? handle.readToEnd()) ?? Data())
+        }
+    }
+}
+
+/// Carries the watchdog's decision back to the caller.
+private final class FlagBox: @unchecked Sendable {
+    var value = false
 }
