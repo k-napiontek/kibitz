@@ -3,6 +3,12 @@ import ApplicationServices
 import Carbon.HIToolbox
 import KibitzCore
 
+/// What one Accessibility traversal found: the text, and where it is on screen.
+struct FocusedSnapshot {
+    let text: FocusedText
+    let anchor: TextAnchor
+}
+
 /// Reads whatever the focused text field is willing to expose.
 ///
 /// Coverage varies enormously between apps: native apps expose value and caret,
@@ -11,16 +17,24 @@ import KibitzCore
 /// decides what to do with the result.
 struct FocusedTextReader {
 
-    func read() -> FocusedText {
+    /// Anything taller than this is a document, not a line of text. Chrome
+    /// reports the whole page as the focused field, and anchoring to a 900 point
+    /// tall box puts the popup nowhere near what was written.
+    private let maxFieldHeight: CGFloat = 160
+
+    /// Reads the text and its position in a single traversal.
+    ///
+    /// These used to be two separate calls, `read()` at the hotkey and
+    /// `anchorRect()` after the model answered some five seconds later. They
+    /// resolved the focused element independently, so clicking elsewhere during
+    /// a check moved the popup to whatever was focused by then.
+    func capture() -> FocusedSnapshot {
         let bundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "unknown"
 
         // Hard stop. Secure input means a password field is active somewhere, and
         // nothing is read at all: not the value, not even the element.
         if IsSecureEventInputEnabled() {
-            return FocusedText(
-                value: nil, selectedText: nil, caretOffset: nil,
-                appBundleID: bundleID, isSecureField: true
-            )
+            return blind(bundleID: bundleID, isSecureField: true)
         }
 
         nudgeElectron(bundleID: bundleID)
@@ -28,71 +42,101 @@ struct FocusedTextReader {
         let systemWide = AXUIElementCreateSystemWide()
         AXUIElementSetMessagingTimeout(systemWide, 1.0)
 
-        guard let element = copy(systemWide, kAXFocusedUIElementAttribute) else {
-            return FocusedText(
-                value: nil, selectedText: nil, caretOffset: nil,
-                appBundleID: bundleID, isSecureField: false
-            )
+        guard let value = copy(systemWide, kAXFocusedUIElementAttribute),
+              let focused = element(value)
+        else {
+            return blind(bundleID: bundleID, isSecureField: false)
         }
-        let focused = element as! AXUIElement
 
         let role = copy(focused, kAXRoleAttribute) as? String
         let subrole = copy(focused, kAXSubroleAttribute) as? String
         if role == "AXSecureTextField" || subrole == "AXSecureTextField" {
-            return FocusedText(
-                value: nil, selectedText: nil, caretOffset: nil,
-                appBundleID: bundleID, isSecureField: true
-            )
+            return blind(bundleID: bundleID, isSecureField: true)
         }
 
-        return FocusedText(
-            value: copy(focused, kAXValueAttribute) as? String,
-            selectedText: copy(focused, kAXSelectedTextAttribute) as? String,
-            caretOffset: selectionRange(of: focused)?.location,
-            appBundleID: bundleID,
-            isSecureField: false
+        let anchor = anchor(of: focused)
+        DiagnosticLog.write("anchor: source=\(anchor.source.rawValue) rect=\(anchor.rect.debugDescription)")
+
+        return FocusedSnapshot(
+            text: FocusedText(
+                value: copy(focused, kAXValueAttribute) as? String,
+                selectedText: copy(focused, kAXSelectedTextAttribute) as? String,
+                caretOffset: selectionRange(of: focused)?.location,
+                appBundleID: bundleID,
+                isSecureField: false
+            ),
+            anchor: anchor
         )
     }
 
+    /// Nothing readable. The anchor still has to be real, because the popup may
+    /// yet be shown to explain why nothing happened.
+    private func blind(bundleID: String, isSecureField: Bool) -> FocusedSnapshot {
+        // Nothing is asked of Accessibility while secure input is on, not even
+        // which window is frontmost. The popup is never shown for a password
+        // field, so the anchor only has to exist.
+        let anchor = isSecureField ? primaryScreenAnchor() : windowAnchor(of: nil)
+        DiagnosticLog.write("anchor: source=\(anchor.source.rawValue) rect=\(anchor.rect.debugDescription)")
+        return FocusedSnapshot(
+            text: FocusedText(
+                value: nil, selectedText: nil, caretOffset: nil,
+                appBundleID: bundleID, isSecureField: isSecureField
+            ),
+            anchor: anchor
+        )
+    }
+
+    // MARK: - Where the text is
+
     /// Where to anchor the popup, in Accessibility (top-left origin) coordinates.
     ///
-    /// Tries hardest to land under the actual text. Falling back to the mouse
-    /// pointer puts the popup wherever the cursor happens to rest, which is
-    /// usually nowhere near what is being corrected.
-    func anchorRect() -> CGRect? {
-        let systemWide = AXUIElementCreateSystemWide()
-        AXUIElementSetMessagingTimeout(systemWide, 1.0)
-        guard let element = copy(systemWide, kAXFocusedUIElementAttribute) else { return nil }
-        let focused = element as! AXUIElement
-
+    /// Tries hardest to land under the actual text, and always answers. The
+    /// pointer is never consulted: it usually rests nowhere near what is being
+    /// corrected, often on another display entirely.
+    private func anchor(of focused: AXUIElement) -> TextAnchor {
         if let range = selectionRange(of: focused) {
             // The selected text itself, so the popup sits under what was checked.
             if range.length > 0, let rect = bounds(of: focused, range: range) {
-                DiagnosticLog.write("anchor: selection bounds \(rect.debugDescription)")
-                return rect
+                return TextAnchor(rect: rect, source: .selection)
             }
-            let caret = CFRange(location: max(0, range.location - 1), length: 1)
-            if let rect = bounds(of: focused, range: caret), rect.height > 0 {
-                DiagnosticLog.write("anchor: caret bounds \(rect.debugDescription)")
-                return rect
+            // Some apps answer a zero-length range with the caret bar itself.
+            // Others need a real character to measure, so the one before the
+            // caret is tried as well.
+            let carets = [
+                CFRange(location: range.location, length: 0),
+                CFRange(location: max(0, range.location - 1), length: 1)
+            ]
+            for caret in carets {
+                if let rect = bounds(of: focused, range: caret) {
+                    return TextAnchor(rect: rect, source: .caret)
+                }
             }
         }
         // Chrome and WebKit expose geometry through text markers rather than
         // character ranges, which is why kAXBoundsForRange returns nothing there.
-        if let rect = boundsFromTextMarkers(focused) {
-            DiagnosticLog.write("anchor: text marker bounds \(rect.debugDescription)")
-            return rect
+        if let raw = boundsFromTextMarkers(focused), let rect = usable(raw) {
+            return TextAnchor(rect: rect, source: raw.width > 0 ? .textMarker : .caret)
         }
+        if let rect = boundsOfCaretLine(focused) {
+            return TextAnchor(rect: rect, source: .line)
+        }
+        if let rect = frame(of: focused), rect.height <= maxFieldHeight {
+            return TextAnchor(rect: rect, source: .fieldFrame)
+        }
+        return windowAnchor(of: focused)
+    }
 
-        // Only if it is plausibly a text run. Chrome reports the whole page as
-        // the focused field, and anchoring to a 900pt tall box puts the popup in
-        // a screen corner, which is worse than admitting we do not know.
-        if let rect = frame(of: focused), rect.height <= 160 {
-            DiagnosticLog.write("anchor: field frame \(rect.debugDescription)")
-            return rect
-        }
-        DiagnosticLog.write("anchor: NONE, falling back to mouse")
-        return nil
+    /// A caret is legitimately zero-width.
+    ///
+    /// Requiring a positive width is what produced "anchor: NONE, falling back
+    /// to mouse" for every check without a selection in Electron and WebKit
+    /// apps: a collapsed marker range has no width, but its origin and height
+    /// are exactly what placing the popup needs. Only a rect with no height is
+    /// genuinely useless.
+    private func usable(_ rect: CGRect) -> CGRect? {
+        guard rect.height > 0 else { return nil }
+        guard rect.width <= 0 else { return rect }
+        return CGRect(x: rect.minX, y: rect.minY, width: 1, height: rect.height)
     }
 
     private func bounds(of element: AXUIElement, range: CFRange) -> CGRect? {
@@ -101,11 +145,10 @@ struct FocusedTextReader {
         var result: CFTypeRef?
         guard AXUIElementCopyParameterizedAttributeValue(
             element, kAXBoundsForRangeParameterizedAttribute as CFString, axRange, &result
-        ) == .success, let value = result else { return nil }
+        ) == .success, let value = result, let box = axValue(value) else { return nil }
         var rect = CGRect.zero
-        guard AXValueGetValue(value as! AXValue, .cgRect, &rect), rect.width > 0, rect.height > 0
-        else { return nil }
-        return rect
+        guard AXValueGetValue(box, .cgRect, &rect) else { return nil }
+        return usable(rect)
     }
 
     private func boundsFromTextMarkers(_ element: AXUIElement) -> CGRect? {
@@ -113,22 +156,79 @@ struct FocusedTextReader {
         var result: CFTypeRef?
         guard AXUIElementCopyParameterizedAttributeValue(
             element, "AXBoundsForTextMarkerRange" as CFString, markerRange, &result
-        ) == .success, let value = result else { return nil }
+        ) == .success, let value = result, let box = axValue(value) else { return nil }
         var rect = CGRect.zero
-        guard AXValueGetValue(value as! AXValue, .cgRect, &rect), rect.width > 0, rect.height > 0
-        else { return nil }
+        guard AXValueGetValue(box, .cgRect, &rect) else { return nil }
         return rect
+    }
+
+    /// The bounds of the line the caret sits on.
+    ///
+    /// Several apps decline kAXBoundsForRange for the selection but answer it
+    /// for a whole line, and a line's bottom edge is exactly where the popup
+    /// belongs.
+    private func boundsOfCaretLine(_ element: AXUIElement) -> CGRect? {
+        guard let line = copy(element, kAXInsertionPointLineNumberAttribute) else { return nil }
+        var result: CFTypeRef?
+        guard AXUIElementCopyParameterizedAttributeValue(
+            element, kAXRangeForLineParameterizedAttribute as CFString, line, &result
+        ) == .success, let value = result, let box = axValue(value) else { return nil }
+        var range = CFRange()
+        guard AXValueGetValue(box, .cfRange, &range) else { return nil }
+        return bounds(of: element, range: range)
     }
 
     private func frame(of element: AXUIElement) -> CGRect? {
         guard let positionValue = copy(element, kAXPositionAttribute),
-              let sizeValue = copy(element, kAXSizeAttribute) else { return nil }
+              let sizeValue = copy(element, kAXSizeAttribute),
+              let positionBox = axValue(positionValue),
+              let sizeBox = axValue(sizeValue) else { return nil }
         var origin = CGPoint.zero
         var size = CGSize.zero
-        guard AXValueGetValue(positionValue as! AXValue, .cgPoint, &origin),
-              AXValueGetValue(sizeValue as! AXValue, .cgSize, &size) else { return nil }
+        guard AXValueGetValue(positionBox, .cgPoint, &origin),
+              AXValueGetValue(sizeBox, .cgSize, &size),
+              size.width > 0, size.height > 0 else { return nil }
         return CGRect(origin: origin, size: size)
     }
+
+    /// The last resort, and deliberately not the mouse pointer.
+    ///
+    /// Terminals and some Electron apps expose no text geometry at all. Their
+    /// window still says which display the work is on, which is the part that
+    /// matters: the pointer routinely rests on another monitor entirely.
+    private func windowAnchor(of focused: AXUIElement?) -> TextAnchor {
+        if let focused,
+           let value = copy(focused, kAXWindowAttribute),
+           let window = element(value),
+           let rect = frame(of: window) {
+            return TextAnchor(rect: rect, source: .window)
+        }
+        if let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier {
+            let app = AXUIElementCreateApplication(pid)
+            AXUIElementSetMessagingTimeout(app, 1.0)
+            for attribute in [kAXFocusedWindowAttribute, kAXMainWindowAttribute] {
+                if let value = copy(app, attribute),
+                   let window = element(value),
+                   let rect = frame(of: window) {
+                    return TextAnchor(rect: rect, source: .window)
+                }
+            }
+        }
+        // Nothing is exposed at all. The primary display is still a real place,
+        // and it is where an app that answers nothing is most likely to be.
+        return primaryScreenAnchor()
+    }
+
+    /// The primary display, in the Accessibility coordinates it defines: its own
+    /// top left corner is the origin they are all measured from.
+    private func primaryScreenAnchor() -> TextAnchor {
+        TextAnchor(
+            rect: CGRect(origin: .zero, size: NSScreen.screens.first?.frame.size ?? .zero),
+            source: .window
+        )
+    }
+
+    // MARK: - Accessibility plumbing
 
     /// Electron apps expose nothing until an assistive client asks them to.
     private func nudgeElectron(bundleID: String) {
@@ -139,9 +239,10 @@ struct FocusedTextReader {
     }
 
     private func selectionRange(of element: AXUIElement) -> CFRange? {
-        guard let value = copy(element, kAXSelectedTextRangeAttribute) else { return nil }
+        guard let value = copy(element, kAXSelectedTextRangeAttribute),
+              let box = axValue(value) else { return nil }
         var range = CFRange()
-        guard AXValueGetValue(value as! AXValue, .cfRange, &range) else { return nil }
+        guard AXValueGetValue(box, .cfRange, &range) else { return nil }
         return range
     }
 
@@ -150,5 +251,18 @@ struct FocusedTextReader {
         guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success
         else { return nil }
         return value
+    }
+
+    /// Checked casts rather than `as!`, because these values come from whatever
+    /// app happens to be focused. One that answers an attribute with the wrong
+    /// type would otherwise take the whole menu bar agent down with it.
+    private func axValue(_ value: CFTypeRef) -> AXValue? {
+        guard CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
+        return (value as! AXValue)
+    }
+
+    private func element(_ value: CFTypeRef) -> AXUIElement? {
+        guard CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
+        return (value as! AXUIElement)
     }
 }

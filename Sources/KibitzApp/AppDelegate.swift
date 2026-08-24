@@ -115,9 +115,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         DiagnosticLog.write("check: trusted=true reading focused element")
-        let focused = reader.read()
+        // Captured now, not after the model answers. Resolving the anchor at the
+        // call site of popup.show meant a five second round trip sat between the
+        // hotkey and the measurement, so a click during the check moved the popup
+        // to whatever was focused by then. The popup belongs to the sentence that
+        // was checked.
+        let snapshot = reader.capture()
+        let focused = snapshot.text
         DiagnosticLog.write("""
-            check: read app=\(focused.appBundleID) secure=\(focused.isSecureField)             valueChars=\(focused.value?.count ?? -1) selChars=\(focused.selectedText?.count ?? -1)             caret=\(focused.caretOffset.map(String.init) ?? "nil")
+            check: read app=\(focused.appBundleID) secure=\(focused.isSecureField)             valueChars=\(focused.value?.count ?? -1) selChars=\(focused.selectedText?.count ?? -1)             caret=\(focused.caretOffset.map(String.init) ?? "nil") anchor=\(snapshot.anchor.source.rawValue)
             """)
         let target = CheckTargetResolver.resolve(focused)
 
@@ -163,7 +169,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             popup.show(
                 verdict: verdict,
                 original: sentence,
-                at: reader.anchorRect(),
+                at: snapshot.anchor,
                 hotkeyLabel: hotkeyLabel
             ) { [weak self] in
                 guard let self, let pending = self.pending else { return }
