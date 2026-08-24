@@ -31,6 +31,17 @@ public enum ClaudeCodeResponseParser {
         let usage: Usage?
     }
 
+    /// The CLI's own description of what went wrong, when it failed but still
+    /// produced its JSON envelope.
+    public static func reportedMessage(in data: Data) -> String? {
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        guard let wrapper = try? decoder.decode(Wrapper.self, from: data),
+              let result = wrapper.result, !result.isEmpty
+        else { return nil }
+        return result
+    }
+
     public static func parse(_ data: Data) throws -> ClaudeCodeResponse {
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase

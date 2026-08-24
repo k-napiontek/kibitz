@@ -262,7 +262,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if case SubprocessError.launchFailed = error {
             return "Could not start the claude CLI. Is it at ~/.local/bin/claude?"
         }
-        if case SubprocessError.nonZeroExit(let code, let stderr) = error {
+        if case SubprocessError.nonZeroExit(let code, let stderr, _) = error {
             return "claude exited \(code): \(stderr.prefix(80))"
         }
         return "Check failed: \(error)"
