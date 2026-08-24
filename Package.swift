@@ -9,6 +9,7 @@ let package = Package(
     ],
     targets: [
         .target(name: "KibitzCore", resources: [.copy("Resources")]),
+        .executableTarget(name: "KibitzApp", dependencies: ["KibitzCore"]),
         .executableTarget(name: "kibitz-check", dependencies: ["KibitzCore"]),
         .executableTarget(name: "kibitz-corpus", dependencies: ["KibitzCore"]),
         .testTarget(
