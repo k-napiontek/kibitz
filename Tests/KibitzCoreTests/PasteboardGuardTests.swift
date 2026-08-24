@@ -20,7 +20,7 @@ struct PasteboardGuardTests {
         let board = scratchPasteboard("restore")
         board.setString("something the user copied", forType: .string)
 
-        PasteboardGuard.preservingContents(of: board) {
+        try? PasteboardGuard.borrowingTextClipboard(of: board) {
             board.clearContents()
             board.setString("the selection we grabbed", forType: .string)
         }
@@ -34,7 +34,7 @@ struct PasteboardGuardTests {
         board.setString("precious", forType: .string)
 
         #expect(throws: Boom.self) {
-            try PasteboardGuard.preservingContents(of: board) {
+            try PasteboardGuard.borrowingTextClipboard(of: board) {
                 board.clearContents()
                 board.setString("garbage", forType: .string)
                 throw Boom()
@@ -45,10 +45,10 @@ struct PasteboardGuardTests {
     }
 
     @Test("the body's result is returned to the caller")
-    func returnsBodyResult() {
+    func returnsBodyResult() throws {
         let board = scratchPasteboard("result")
 
-        let grabbed = PasteboardGuard.preservingContents(of: board) { () -> String in
+        let grabbed = try PasteboardGuard.borrowingTextClipboard(of: board) { () -> String in
             board.clearContents()
             board.setString("I am interested of this.", forType: .string)
             return board.string(forType: .string) ?? ""
@@ -57,29 +57,47 @@ struct PasteboardGuardTests {
         #expect(grabbed == "I am interested of this.")
     }
 
-    @Test("non-text clipboard contents survive too, not just strings")
-    func restoresRichContent() {
-        let board = scratchPasteboard("rich")
+    @Test("a clipboard holding a file or image is refused, never read")
+    func refusesNonTextClipboard() {
+        let board = scratchPasteboard("file")
+        let item = NSPasteboardItem()
+        item.setString("file:///Volumes/share/holiday.jpg", forType: .fileURL)
+        board.clearContents()
+        board.writeObjects([item])
+
+        #expect(throws: PasteboardGuard.Refusal.self) {
+            try PasteboardGuard.borrowingTextClipboard(of: board) {
+                Issue.record("the body must not run")
+            }
+        }
+
+        // Untouched: reading the data of a file or photo reference is what makes
+        // macOS demand Photos and network volume permissions in our name.
+        #expect(board.string(forType: .fileURL) == "file:///Volumes/share/holiday.jpg")
+    }
+
+    @Test("rich text alongside plain text is still text, so it is allowed")
+    func allowsRichText() throws {
+        let board = scratchPasteboard("rtf")
         let item = NSPasteboardItem()
         item.setString("plain", forType: .string)
         item.setData(Data("{\\rtf1 rich}".utf8), forType: .rtf)
         board.clearContents()
         board.writeObjects([item])
 
-        PasteboardGuard.preservingContents(of: board) {
+        try PasteboardGuard.borrowingTextClipboard(of: board) {
             board.clearContents()
-            board.setString("clobbered", forType: .string)
+            board.setString("temporary", forType: .string)
         }
 
         #expect(board.string(forType: .string) == "plain")
-        #expect(board.data(forType: .rtf) != nil)
     }
 
     @Test("an empty clipboard is left empty, not filled with our leftovers")
     func emptyStaysEmpty() {
         let board = scratchPasteboard("empty")
 
-        PasteboardGuard.preservingContents(of: board) {
+        try? PasteboardGuard.borrowingTextClipboard(of: board) {
             board.clearContents()
             board.setString("temporary", forType: .string)
         }
