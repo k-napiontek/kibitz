@@ -75,6 +75,25 @@ struct FocusedTextReader {
         )
     }
 
+    /// Records what an app exposes when it has no focused element at all.
+    ///
+    /// Chrome answers for its own toolbar while returning nothing for the page,
+    /// because it builds the web content tree only once an assistive client
+    /// asks for it. Whether AXManualAccessibility and AXEnhancedUserInterface
+    /// are listed on the application element says whether that is what happened.
+    private func describeMissingFocus(bundleID: String) {
+        guard let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier else {
+            DiagnosticLog.write("unreadable: app=\(bundleID) no frontmost process")
+            return
+        }
+        let app = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(app, 1.0)
+        DiagnosticLog.write("""
+            unreadable: app=\(bundleID) no focused element \
+            attributes=[\(names(of: app).joined(separator: " "))]
+            """)
+    }
+
     /// Records what an app that exposed no text does expose.
     ///
     /// "Nothing readable in that field" is the same message whether the field is
@@ -112,6 +131,7 @@ struct FocusedTextReader {
         // which window is frontmost. The popup is never shown for a password
         // field, so the anchor only has to exist.
         let anchor = isSecureField ? primaryScreenAnchor() : windowAnchor(of: nil)
+        if !isSecureField { describeMissingFocus(bundleID: bundleID) }
         DiagnosticLog.write("anchor: source=\(anchor.source.rawValue) rect=\(anchor.rect.debugDescription)")
         return FocusedSnapshot(
             text: FocusedText(
