@@ -57,16 +57,52 @@ struct FocusedTextReader {
         let anchor = anchor(of: focused)
         DiagnosticLog.write("anchor: source=\(anchor.source.rawValue) rect=\(anchor.rect.debugDescription)")
 
+        let fieldValue = copy(focused, kAXValueAttribute) as? String
+        let selected = copy(focused, kAXSelectedTextAttribute) as? String
+        if fieldValue == nil, selected == nil {
+            describeUnreadable(focused, bundleID: bundleID, role: role, subrole: subrole)
+        }
+
         return FocusedSnapshot(
             text: FocusedText(
-                value: copy(focused, kAXValueAttribute) as? String,
-                selectedText: copy(focused, kAXSelectedTextAttribute) as? String,
+                value: fieldValue,
+                selectedText: selected,
                 caretOffset: selectionRange(of: focused)?.location,
                 appBundleID: bundleID,
                 isSecureField: false
             ),
             anchor: anchor
         )
+    }
+
+    /// Records what an app that exposed no text does expose.
+    ///
+    /// "Nothing readable in that field" is the same message whether the field is
+    /// empty, the app maps it to a role with no value, or it withholds text from
+    /// assistive clients entirely. Attribute names separate those without
+    /// writing any of what someone typed: names only, never values.
+    private func describeUnreadable(
+        _ element: AXUIElement, bundleID: String, role: String?, subrole: String?
+    ) {
+        DiagnosticLog.write("""
+            unreadable: app=\(bundleID) role=\(role ?? "nil") subrole=\(subrole ?? "nil") \
+            attributes=[\(names(of: element).joined(separator: " "))] \
+            parameterized=[\(parameterizedNames(of: element).joined(separator: " "))]
+            """)
+    }
+
+    private func names(of element: AXUIElement) -> [String] {
+        var names: CFArray?
+        guard AXUIElementCopyAttributeNames(element, &names) == .success,
+              let list = names as? [String] else { return [] }
+        return list
+    }
+
+    private func parameterizedNames(of element: AXUIElement) -> [String] {
+        var names: CFArray?
+        guard AXUIElementCopyParameterizedAttributeNames(element, &names) == .success,
+              let list = names as? [String] else { return [] }
+        return list
     }
 
     /// Nothing readable. The anchor still has to be real, because the popup may
