@@ -93,4 +93,41 @@ struct SubprocessTests {
         #expect(outputs.count == 8)
         #expect(outputs.allSatisfy { $0?.hasPrefix("run") == true })
     }
+
+    @Test("runs in the working directory it is given, not whatever it inherited")
+    func honoursWorkingDirectory() async throws {
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appending(path: "kibitz-cwd-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let result = try await Subprocess.run(
+            executable: URL(fileURLWithPath: "/bin/sh"),
+            arguments: ["-c", "pwd"],
+            timeout: .seconds(5),
+            workingDirectory: directory
+        )
+
+        let pwd = String(decoding: result.stdout, as: UTF8.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        #expect(pwd.hasSuffix(directory.lastPathComponent))
+    }
+}
+
+@Suite("Sandbox directory")
+struct SandboxDirectoryTests {
+
+    @Test("the provider runs the CLI in its own empty directory")
+    func providerUsesAnEmptyScratchDirectory() throws {
+        let directory = try ClaudeCodeProvider.scratchWorkingDirectory()
+
+        var isDirectory: ObjCBool = false
+        #expect(FileManager.default.fileExists(atPath: directory.path, isDirectory: &isDirectory))
+        #expect(isDirectory.boolValue)
+
+        // The point of it: the CLI must not find a project to read. Anything here
+        // would be scanned, and macOS would attribute that access to this app.
+        let contents = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+        #expect(contents.isEmpty)
+    }
 }

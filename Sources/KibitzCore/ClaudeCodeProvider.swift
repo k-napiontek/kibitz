@@ -52,9 +52,42 @@ public struct ClaudeCodeProvider: ModelProvider {
         let result = try await Subprocess.run(
             executable: executableURL,
             arguments: arguments(for: sentence, previous: previous),
-            timeout: .seconds(60)
+            timeout: .seconds(30),
+            workingDirectory: try? Self.scratchWorkingDirectory(),
+            environment: childEnvironment
         )
         return try ClaudeCodeResponseParser.parse(result.stdout)
+    }
+
+    /// An empty directory for the CLI to run in.
+    ///
+    /// This matters more than it looks. The `claude` CLI treats its working
+    /// directory as a project and reads it at startup, and macOS attributes a
+    /// child process's file access to the responsible parent - this app. Left to
+    /// inherit whatever directory the .app was launched from, that produced
+    /// permission prompts in kibitz's name for Photos and network volumes.
+    /// An empty directory gives it nothing to read.
+    static func scratchWorkingDirectory() throws -> URL {
+        let directory = URL.applicationSupportDirectory
+            .appending(path: "kibitz", directoryHint: .isDirectory)
+            .appending(path: "cli-workdir", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
+
+    /// A GUI process can be launched with almost no environment. The CLI needs a
+    /// usable PATH and HOME to find its own credentials, and returns
+    /// "Not logged in" without them.
+    private var childEnvironment: [String: String] {
+        var environment = ProcessInfo.processInfo.environment
+        environment["HOME"] = environment["HOME"] ?? NSHomeDirectory()
+        let path = environment["PATH"] ?? ""
+        if !path.contains("/usr/bin") {
+            environment["PATH"] = path.isEmpty
+                ? "/usr/bin:/bin:/usr/sbin:/sbin"
+                : path + ":/usr/bin:/bin:/usr/sbin:/sbin"
+        }
+        return environment
     }
 
     private var executableURL: URL {
@@ -85,16 +118,22 @@ enum Subprocess {
     static func run(
         executable: URL,
         arguments: [String],
-        timeout: Duration
+        timeout: Duration,
+        workingDirectory: URL? = nil,
+        environment: [String: String]? = nil
     ) async throws -> SubprocessResult {
         let process = Process()
         process.executableURL = executable
         process.arguments = arguments
+        if let workingDirectory { process.currentDirectoryURL = workingDirectory }
+        if let environment { process.environment = environment }
 
         let outPipe = Pipe()
         let errPipe = Pipe()
         process.standardOutput = outPipe
         process.standardError = errPipe
+        // A GUI app's children inherit a stdin they can block on forever.
+        process.standardInput = FileHandle.nullDevice
 
         let started = Date()
         do {
