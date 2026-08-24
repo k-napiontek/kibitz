@@ -33,9 +33,10 @@ observed patterns beat twenty generic ones.
 swift build -c release
 ```
 
-Two workarounds live in `scripts/test.sh` because swift-testing does not fully
-work under Command Line Tools alone. Both can be deleted once the project is
-built with full Xcode. The script explains why.
+`scripts/test.sh` prefers Xcode via `DEVELOPER_DIR`, so you do not need to run
+`sudo xcode-select -s`. It falls back to Command Line Tools with two workarounds,
+because swift-testing ships there but is neither on SwiftPM's default search path
+nor able to cross-import Foundation. The script explains both.
 
 ### Tests come first
 
