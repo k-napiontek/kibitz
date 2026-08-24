@@ -10,6 +10,7 @@ let package = Package(
     targets: [
         .target(name: "KibitzCore", resources: [.copy("Resources")]),
         .executableTarget(name: "kibitz-check", dependencies: ["KibitzCore"]),
+        .executableTarget(name: "kibitz-corpus", dependencies: ["KibitzCore"]),
         .testTarget(
             name: "KibitzCoreTests",
             dependencies: ["KibitzCore"],
