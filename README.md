@@ -35,6 +35,8 @@ mistakes you actually repeat, and you pick which ones become Anki cards.
 ## Requirements
 
 - macOS 26 or later, Apple Silicon
+- Xcode Command Line Tools, because kibitz compiles on your machine. Run
+  `xcode-select --install` if you do not have them.
 - **A Claude Max subscription or an Anthropic API key.** kibitz has no hosted
   backend. You bring your own model access and you pay for your own usage.
 
@@ -57,8 +59,18 @@ rather than letting you switch on a mode that would feel broken.
 Not released yet. When it is:
 
 ```
-brew install --cask k-napiontek/tap/kibitz
+brew install k-napiontek/tap/kibitz
 ```
+
+kibitz is distributed as source and built on your Mac, not as a prebuilt
+binary. That is deliberate. A downloaded binary has to be notarised by Apple to
+open without a warning, which requires a paid developer account, and the
+alternative is telling you to run `xattr -dr com.apple.quarantine` on an app
+that reads what you type. That is the same instruction malware gives, so this
+project does not ask it of you.
+
+Building locally sidesteps the question entirely. The tradeoff is that you need
+the Command Line Tools installed, which most developers already do.
 
 ## Permissions and privacy
 
@@ -79,6 +91,10 @@ asks for it. Here is exactly what it does:
   project.
 - The mistake log is a plain SQLite file on your machine. Delete it whenever
   you like.
+
+macOS ties the Accessibility grant to the exact binary, so **after an update you
+will be asked to grant it again.** That is macOS behaving correctly, not a bug.
+It stays granted between updates.
 
 ## Adding your language
 
