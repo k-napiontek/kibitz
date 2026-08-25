@@ -32,6 +32,44 @@ on.
 Every correction goes into a local SQLite log. Once a week kibitz shows you the
 mistakes you actually repeat, and you pick which ones become Anki cards.
 
+## The weekly review
+
+A week after the last one, kibitz opens a window with the mistakes worth
+studying. Categories are ordered by how often you repeated them, because a
+category you got wrong nine times is a habit and a habit is what a flashcard is
+for. Seriousness only breaks ties: one bad slip you will never make again is
+worth less study than nine small ones you make daily. Inside a category the
+serious mistakes come first.
+
+The categories kibitz mutes from the popup so they do not interrupt typing -
+spelling, punctuation, capitalization - still appear here. They were never worth
+a bubble mid-sentence; they are worth seeing once a week.
+
+Tick the ones you want and export. You get a plain tab-separated file:
+
+```
+#separator:tab
+#html:true
+#tags column:3
+
+I work here since 2020.    I have worked here since 2020.<br>'since 2020' wymaga present perfect.    kibitz tense high
+```
+
+Import it with Anki's **File > Import** using the **Basic** note type. The header
+lines set the field mapping and the tags column for you. The front is the
+sentence you actually wrote, the back is the fix with the changed words in bold
+followed by the explanation in your language, and each card is tagged `kibitz`
+plus its category and severity.
+
+Exported mistakes are marked, so next week's review does not offer you a card you
+already made. They still count towards their category, because "you got articles
+wrong nine times" stays true whether or not you made the card.
+
+Nothing waits for a timer to fire. Being due is recomputed from a stored date
+every time, so a laptop that spent the week asleep comes back to one review
+waiting, not a backlog of them. A review that comes due with nothing in it stays
+quiet. You can open it whenever you like from the menu bar.
+
 ## Requirements
 
 - macOS 26 or later, Apple Silicon
@@ -135,8 +173,14 @@ asks for it. Here is exactly what it does:
   operated by this project. Which one you pick is a real privacy decision, and
   it is why the backend is an explicit menu choice rather than something the app
   infers from what is on your machine.
-- The mistake log is a plain SQLite file on your machine. Delete it whenever
-  you like.
+- **Correct sentences are counted, never stored.** The review can tell you that
+  82 sentences were checked and 14 had a mistake without the log accumulating
+  everything you have ever typed. Only the mistakes keep their text.
+- The mistake log is a plain SQLite file at
+  `~/Library/Application Support/kibitz/mistakes.sqlite`, beside the diagnostics.
+  Read it with `sqlite3` whenever you are curious about what it holds. Delete it
+  whenever you like - **Mistake log > Delete the mistake log...** in the menu
+  bar does it, and kibitz keeps working with a fresh one.
 
 macOS ties the Accessibility grant to the exact binary, so **after an update you
 will be asked to grant it again.** That is macOS behaving correctly, not a bug.
@@ -157,7 +201,7 @@ See `CONTRIBUTING.md`.
 ```
 git clone https://github.com/k-napiontek/kibitz
 cd kibitz
-./scripts/test.sh          # 133 tests
+./scripts/test.sh          # 206 tests
 swift build -c release
 ```
 
