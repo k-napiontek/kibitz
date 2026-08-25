@@ -6,13 +6,6 @@ public enum ClaudeCodeParseError: Error, Equatable {
     case resultWasNotJSON(String)
 }
 
-public struct ClaudeCodeResponse: Sendable, Equatable {
-    public let verdict: Verdict
-    public let costUSD: Double
-    public let apiDurationMS: Int
-    public let cacheReadTokens: Int
-}
-
 /// Turns `claude -p --output-format json` output into a `Verdict`.
 ///
 /// This path has no structured-output guarantee, so the model does sometimes
@@ -23,6 +16,7 @@ public enum ClaudeCodeResponseParser {
     private struct Wrapper: Decodable {
         struct Usage: Decodable {
             let cacheReadInputTokens: Int?
+            let inputTokens: Int?
         }
         let isError: Bool?
         let result: String?
@@ -42,7 +36,7 @@ public enum ClaudeCodeResponseParser {
         return result
     }
 
-    public static func parse(_ data: Data) throws -> ClaudeCodeResponse {
+    public static func parse(_ data: Data) throws -> CheckResponse {
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
 
@@ -56,34 +50,16 @@ public enum ClaudeCodeResponseParser {
             throw ClaudeCodeParseError.cliReportedError(result)
         }
 
-        guard let verdict = decodeVerdict(from: result) else {
+        guard let verdict = VerdictDecoder.decode(from: result) else {
             throw ClaudeCodeParseError.resultWasNotJSON(result)
         }
 
-        return ClaudeCodeResponse(
+        return CheckResponse(
             verdict: verdict,
             costUSD: wrapper.totalCostUsd ?? 0,
             apiDurationMS: wrapper.durationApiMs ?? 0,
-            cacheReadTokens: wrapper.usage?.cacheReadInputTokens ?? 0
+            cacheReadTokens: wrapper.usage?.cacheReadInputTokens ?? 0,
+            uncachedInputTokens: wrapper.usage?.inputTokens ?? 0
         )
-    }
-
-    /// Tries the reply as-is, then as the outermost `{...}` span. The second
-    /// attempt is what survives a markdown fence or a stray sentence.
-    private static func decodeVerdict(from result: String) -> Verdict? {
-        let decoder = JSONDecoder()
-        let trimmed = result.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        if let verdict = try? decoder.decode(Verdict.self, from: Data(trimmed.utf8)) {
-            return verdict
-        }
-        guard let open = trimmed.firstIndex(of: "{"),
-              let close = trimmed.lastIndex(of: "}"),
-              open < close
-        else {
-            return nil
-        }
-        let span = String(trimmed[open...close])
-        return try? decoder.decode(Verdict.self, from: Data(span.utf8))
     }
 }

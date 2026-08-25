@@ -17,20 +17,13 @@ public struct ClaudeCodeProvider: ModelProvider {
         self.model = model
     }
 
-    public var supportsAutomaticMode: Bool { false }
+    public var displayName: String { "Claude subscription (\(model))" }
 
-    /// The prompt expects context above the separator and the sentence to
-    /// judge below it. `NONE` keeps the shape constant when there is no
-    /// preceding sentence, so the cached prefix stays stable.
-    static func formatInput(sentence: String, previous: String?) -> String {
-        let context = previous?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let head = (context?.isEmpty == false ? context! : "NONE")
-        return "\(head)\n---\n\(sentence)"
-    }
+    public var supportsAutomaticMode: Bool { false }
 
     func arguments(for sentence: String, previous: String?) -> [String] {
         [
-            "--print", Self.formatInput(sentence: sentence, previous: previous),
+            "--print", CheckInput.format(sentence: sentence, previous: previous),
             "--model", model,
             "--system-prompt", systemPrompt,
             "--output-format", "json",
@@ -42,13 +35,7 @@ public struct ClaudeCodeProvider: ModelProvider {
         ]
     }
 
-    public func check(sentence: String, previous: String?) async throws -> Verdict {
-        try await run(sentence: sentence, previous: previous).verdict
-    }
-
-    /// Returns the full response so callers can record real cost and latency
-    /// rather than estimating them.
-    public func run(sentence: String, previous: String?) async throws -> ClaudeCodeResponse {
+    public func run(sentence: String, previous: String?) async throws -> CheckResponse {
         do {
             let result = try await Subprocess.run(
                 executable: executableURL,
