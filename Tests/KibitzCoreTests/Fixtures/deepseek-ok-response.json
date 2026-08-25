@@ -1,0 +1,25 @@
+{
+  "_comment": "Hand-built from the documented chat-completions shape. The cold-cache case: the whole prompt was billed as a miss.",
+  "id": "c2d3e4f5-0000-4000-8000-abcdefabcdef",
+  "object": "chat.completion",
+  "created": 1756512060,
+  "model": "deepseek-v4-flash",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "{\"verdict\":\"ok\",\"category\":\"none\",\"severity\":\"low\",\"corrected\":\"I pushed the fix to main and the pipeline is green.\",\"why_l1\":\"\"}"
+      },
+      "logprobs": null,
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 1432,
+    "completion_tokens": 38,
+    "total_tokens": 1470,
+    "prompt_cache_hit_tokens": 0,
+    "prompt_cache_miss_tokens": 1432
+  }
+}

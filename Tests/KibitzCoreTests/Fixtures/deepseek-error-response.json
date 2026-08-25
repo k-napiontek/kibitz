@@ -1,0 +1,25 @@
+{
+  "_comment": "Hand-built from the documented chat-completions shape, not captured from a live call. Field names and nesting match DeepSeek's OpenAI-compatible response.",
+  "id": "b1c2d3e4-0000-4000-8000-abcdefabcdef",
+  "object": "chat.completion",
+  "created": 1756512000,
+  "model": "deepseek-v4-flash",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "{\"verdict\":\"error\",\"category\":\"word-choice\",\"severity\":\"high\",\"corrected\":\"I am 20 years old and I have worked here since 2020.\",\"why_l1\":\"Wiek podajemy przez 'to be', nie 'to have'.\"}"
+      },
+      "logprobs": null,
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 1432,
+    "completion_tokens": 54,
+    "total_tokens": 1486,
+    "prompt_cache_hit_tokens": 1408,
+    "prompt_cache_miss_tokens": 24
+  }
+}

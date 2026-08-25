@@ -1,0 +1,32 @@
+{
+  "_comment": "Captured from api.deepseek.com on 2026-08-25 with thinking left at its default. Every one of the 300 output tokens went to reasoning, so the model never wrote a character of JSON. This is what an unbounded thinking budget does to a task that only needs 50 tokens of answer.",
+  "object": "chat.completion",
+  "created": 1787648646,
+  "model": "deepseek-v4-flash",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "",
+        "reasoning_content": "We need to judge the sentence: \"I have 20 years and I work here since 2020.\"\n\nThis is a Polish speaker's error. Both parts: \"I have 20 years\" (should be \"I am 20 years old\") and \"I [...trimmed for the fixture...]"
+      },
+      "logprobs": null,
+      "finish_reason": "length"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 1810,
+    "completion_tokens": 300,
+    "total_tokens": 2110,
+    "prompt_tokens_details": {
+      "cached_tokens": 1792
+    },
+    "completion_tokens_details": {
+      "reasoning_tokens": 300
+    },
+    "prompt_cache_hit_tokens": 1792,
+    "prompt_cache_miss_tokens": 18
+  },
+  "system_fingerprint": "a26a7955944dc5c60445bff77fac9c8e"
+}

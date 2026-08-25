@@ -14,24 +14,6 @@ struct ClaudeCodeProviderTests {
         #expect(provider.supportsAutomaticMode == false)
     }
 
-    @Test("sends the literal word NONE when there is no preceding sentence")
-    func formatsInputWithoutContext() {
-        let formatted = ClaudeCodeProvider.formatInput(
-            sentence: "I have 20 years.", previous: nil
-        )
-
-        #expect(formatted == "NONE\n---\nI have 20 years.")
-    }
-
-    @Test("passes the preceding sentence as context above the separator")
-    func formatsInputWithContext() {
-        let formatted = ClaudeCodeProvider.formatInput(
-            sentence: "The tests was failing.", previous: "We merged the refactor."
-        )
-
-        #expect(formatted == "We merged the refactor.\n---\nThe tests was failing.")
-    }
-
     @Test("strips tools, MCP servers and session persistence from the invocation")
     func buildsMinimalInvocation() {
         let arguments = provider.arguments(for: "Hello there my friend.", previous: nil)

@@ -1,0 +1,17 @@
+{
+  "_comment": "JSON mode is a strong hint, not constrained decoding. This is the fence case the CLI backend also produces, kept so both parsers stay tolerant of it.",
+  "id": "d3e4f5a6-0000-4000-8000-abcdefabcdef",
+  "object": "chat.completion",
+  "model": "deepseek-v4-flash",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "```json\n{\"verdict\":\"ok\",\"category\":\"none\",\"severity\":\"low\",\"corrected\":\"I pushed the fix to main and the pipeline is green.\",\"why_l1\":\"\"}\n```"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": { "prompt_cache_hit_tokens": 1408, "prompt_cache_miss_tokens": 24, "completion_tokens": 38 }
+}

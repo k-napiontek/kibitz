@@ -12,11 +12,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let corrector = Corrector()
     private let popup = PopupController()
     private let filter = VerdictFilter(config: .default)
+    private let settings = BackendSettings()
+    private let keys = APIKeyStore()
 
     private var statusItem: NSStatusItem?
     /// Shown in the menu. The unified log is not readable everywhere, so the app
     /// has to be able to explain itself without it.
     private var lastEventItem: NSMenuItem?
+    /// Held so the checkmarks and the enabled state can follow the settings
+    /// without rebuilding the menu.
+    private var backendItems: [Backend: NSMenuItem] = [:]
+    private var modelItems: [DeepSeekModel: NSMenuItem] = [:]
+    private var modelMenuItem: NSMenuItem?
+    private var removeKeyItem: NSMenuItem?
     private var lastEvent = "No checks yet" { didSet { lastEventItem?.title = lastEvent } }
     private var provider: (any ModelProvider)?
     private var providerError: String?
@@ -39,7 +47,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case idle, checking, error(String)
     }
 
-    private let hotkeyLabel = "\u{2318}\u{21E7}E"
+    private static let hotkeyLabel = "\u{2318}\u{21E7}E"
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Notice level, so `log show` keeps it. Diagnosing "nothing happened"
@@ -59,17 +67,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Wiring
 
+    /// Re-run whenever the backend, the model or the key changes, so the next
+    /// hotkey press uses what the menu says.
     private func setUpProvider() {
         do {
-            let prompt = try BundledPrompt.renderedSystemPrompt(for: .polish)
-            provider = ClaudeCodeProvider(systemPrompt: prompt)
+            let resolved = try ProviderResolver.make(settings: settings, keys: keys)
+            provider = resolved
+            providerError = nil
+            if case .error = state { state = .idle }
+            DiagnosticLog.write("provider: \(resolved.displayName)")
         } catch {
-            state = .error("Could not load the coaching prompt")
-            providerError = "Coaching prompt failed to load: \(error)"
+            provider = nil
+            providerError = Self.explain(error)
+            state = .error(providerError ?? "")
             lastEvent = providerError ?? ""
-            logger.error("prompt load failed: \(String(describing: error), privacy: .public)")
-            DiagnosticLog.write("startup: prompt load FAILED \(error)")
+            logger.error("provider setup failed: \(String(describing: error), privacy: .public)")
+            DiagnosticLog.write("provider: FAILED \(error)")
         }
+        refreshBackendMenu()
     }
 
     private func hotkeyPressed() {
@@ -93,11 +108,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DiagnosticLog.write("check: begin")
         checkInFlight = true
         defer { checkInFlight = false }
+        if provider == nil {
+            // A missing provider is often transient - a Keychain prompt that went
+            // unanswered, most of all - so pressing the hotkey again has to be a
+            // real second chance rather than a replay of the same error.
+            DiagnosticLog.write("check: no provider, resolving again")
+            setUpProvider()
+        }
         guard let provider else {
             // Returning silently here is what made this look like a hang: the menu
             // sat on "Checking..." while nothing was running.
-            DiagnosticLog.write("check: NO PROVIDER, prompt failed to load")
-            lastEvent = providerError ?? "Coaching prompt could not be loaded"
+            DiagnosticLog.write("check: NO PROVIDER, \(providerError ?? "unknown")")
+            lastEvent = providerError ?? "No backend is configured"
             state = .error(lastEvent)
             return
         }
@@ -170,7 +192,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 verdict: verdict,
                 original: sentence,
                 at: snapshot.anchor,
-                hotkeyLabel: hotkeyLabel
+                hotkeyLabel: Self.hotkeyLabel
             ) { [weak self] in
                 guard let self, let pending = self.pending else { return }
                 self.apply(pending)
@@ -207,15 +229,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             systemSymbolName: "text.bubble", accessibilityDescription: "kibitz"
         )
         let menu = NSMenu()
+        // Without this, AppKit enables any item whose target responds to its
+        // action, and every `isEnabled` set below is quietly ignored.
+        menu.autoenablesItems = false
         let event = NSMenuItem(title: lastEvent, action: nil, keyEquivalent: "")
         event.isEnabled = false
         menu.addItem(event)
         lastEventItem = event
         menu.addItem(.separator())
         menu.addItem(
-            withTitle: "Check now  \(hotkeyLabel)",
+            withTitle: "Check now  \(Self.hotkeyLabel)",
             action: #selector(checkNow), keyEquivalent: ""
         ).target = self
+        menu.addItem(.separator())
+        menu.addItem(makeBackendMenuItem())
+        menu.addItem(makeModelMenuItem())
+        menu.addItem(
+            withTitle: "Set DeepSeek API key...",
+            action: #selector(setAPIKey), keyEquivalent: ""
+        ).target = self
+        let remove = NSMenuItem(
+            title: "Remove DeepSeek API key",
+            action: #selector(removeAPIKey), keyEquivalent: ""
+        )
+        remove.target = self
+        menu.addItem(remove)
+        removeKeyItem = remove
         menu.addItem(.separator())
         menu.addItem(
             withTitle: "Accessibility permission...",
@@ -225,6 +264,131 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(withTitle: "Quit kibitz", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         item.menu = menu
         statusItem = item
+        refreshBackendMenu()
+    }
+
+    private func makeBackendMenuItem() -> NSMenuItem {
+        let submenu = NSMenu()
+        submenu.autoenablesItems = false
+        for backend in Backend.allCases {
+            let entry = NSMenuItem(
+                title: backend.menuTitle, action: #selector(selectBackend), keyEquivalent: ""
+            )
+            entry.target = self
+            entry.representedObject = backend.rawValue
+            submenu.addItem(entry)
+            backendItems[backend] = entry
+        }
+        let item = NSMenuItem(title: "Backend", action: nil, keyEquivalent: "")
+        item.submenu = submenu
+        return item
+    }
+
+    private func makeModelMenuItem() -> NSMenuItem {
+        let submenu = NSMenu()
+        submenu.autoenablesItems = false
+        for model in DeepSeekModel.allCases {
+            let entry = NSMenuItem(
+                title: model.menuTitle, action: #selector(selectModel), keyEquivalent: ""
+            )
+            entry.target = self
+            entry.representedObject = model.rawValue
+            submenu.addItem(entry)
+            modelItems[model] = entry
+        }
+        let item = NSMenuItem(title: "DeepSeek model", action: nil, keyEquivalent: "")
+        item.submenu = submenu
+        modelMenuItem = item
+        return item
+    }
+
+    /// Checkmarks follow the stored settings, and the model submenu is greyed
+    /// out on the subscription backend rather than offering a choice that
+    /// changes nothing.
+    private func refreshBackendMenu() {
+        let backend = settings.backend
+        for (candidate, entry) in backendItems {
+            entry.state = candidate == backend ? .on : .off
+        }
+        let model = settings.deepSeekModel
+        for (candidate, entry) in modelItems {
+            entry.state = candidate == model ? .on : .off
+        }
+        modelMenuItem?.isEnabled = backend == .deepseek
+        modelMenuItem?.submenu?.items.forEach { $0.isEnabled = backend == .deepseek }
+        removeKeyItem?.isEnabled = keys.exists()
+    }
+
+    @objc private func selectBackend(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let backend = Backend(rawValue: raw)
+        else { return }
+        settings.backend = backend
+        setUpProvider()
+        if let provider { lastEvent = "Backend: \(provider.displayName)" }
+    }
+
+    @objc private func selectModel(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let model = DeepSeekModel(rawValue: raw)
+        else { return }
+        settings.deepSeekModel = model
+        setUpProvider()
+        if let provider { lastEvent = "Model: \(provider.displayName)" }
+    }
+
+    /// A secure field in an alert, because the alternative is a settings window
+    /// this app does not have yet and does not otherwise need.
+    @objc private func setAPIKey() {
+        let alert = NSAlert()
+        alert.messageText = "DeepSeek API key"
+        alert.informativeText = "Stored in your login Keychain, never in the app bundle or a preferences file. Create a key at platform.deepseek.com."
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Cancel")
+        let field = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
+        field.placeholderString = "sk-..."
+        alert.accessoryView = field
+        NSApp.activate(ignoringOtherApps: true)
+        alert.window.initialFirstResponder = field
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let key = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else { return }
+
+        do {
+            try keys.save(key)
+            // Deliberately does not switch backend: where sentences go stays an
+            // explicit choice, so storing a key never silently reroutes them.
+            lastEvent = settings.backend == .deepseek
+                ? "Key saved"
+                : "Key saved. Pick DeepSeek API under Backend to use it."
+            setUpProvider()
+        } catch {
+            lastEvent = "Could not save the key to the Keychain: \(error)"
+            DiagnosticLog.write("keychain: save FAILED \(error)")
+        }
+    }
+
+    @objc private func removeAPIKey() {
+        let alert = NSAlert()
+        alert.messageText = "Remove the DeepSeek API key?"
+        alert.informativeText = "kibitz will go back to the Claude subscription backend."
+        alert.addButton(withTitle: "Remove")
+        alert.addButton(withTitle: "Cancel")
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        do {
+            try keys.delete()
+            // Leaving DeepSeek selected with no key would strand the app in an
+            // error state it cannot check its way out of.
+            if settings.backend == .deepseek { settings.backend = .subscription }
+            lastEvent = "Key removed, back on the Claude subscription"
+            setUpProvider()
+        } catch {
+            lastEvent = "Could not remove the key: \(error)"
+            DiagnosticLog.write("keychain: delete FAILED \(error)")
+        }
     }
 
     private func refreshStatusItem() {
@@ -253,6 +417,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Provider failures are useless as raw enum text. Name the fix instead.
     private static func explain(_ error: Error) -> String {
+        if case ProviderResolutionError.noAPIKey = error {
+            return "No DeepSeek key. Set one from the menu, or switch back to the subscription."
+        }
+        if case KeychainError.userCancelled = error {
+            // Expected after every rebuild: the Keychain ACL is bound to the
+            // exact binary, so a fresh build is a stranger to its own key.
+            return "Keychain access was declined. Press \(hotkeyLabel) again and click Always Allow."
+        }
+        if let error = error as? DeepSeekError {
+            switch error {
+            case .unauthorized:
+                return "DeepSeek rejected the key. Set it again from the menu."
+            case .insufficientBalance:
+                return "DeepSeek balance is empty. Top it up at platform.deepseek.com."
+            case .rateLimited:
+                return "DeepSeek is rate limiting. Try again in a moment."
+            case .serverError(let status, let message):
+                return "DeepSeek returned \(status): \(message.prefix(80))"
+            case .emptyContent:
+                return "DeepSeek returned an empty reply twice. Try again."
+            case .truncated:
+                return "DeepSeek hit its output limit before finishing the answer."
+            case .replyWasNotJSON(let reply):
+                return "DeepSeek did not reply with JSON: \(reply.prefix(60))"
+            case .timedOut:
+                return "DeepSeek did not answer within 15s."
+            case .transport(let detail):
+                return "Could not reach DeepSeek: \(detail.prefix(80))"
+            }
+        }
+        if error is PromptError {
+            return "Coaching prompt failed to load: \(error)"
+        }
         if case ClaudeCodeParseError.cliReportedError(let message) = error {
             if message.localizedCaseInsensitiveContains("not logged in") {
                 return "Claude CLI is not logged in for this app. Run: claude /login"
