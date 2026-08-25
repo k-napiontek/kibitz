@@ -127,17 +127,26 @@ Everything lives in the menu bar icon:
 
 ## Install
 
-> **Not released yet.** The tap is empty until the first `v*` tag is built, so
-> the command below does not work today. Delete this note when v0.2.0 ships.
+> **Not released yet.** `Formula/kibitz.rb` appears when the first `v*` tag is
+> built, so the commands below do not work today. Delete this note when v0.2.0
+> ships.
 
 ```
-brew install k-napiontek/tap/kibitz
+brew tap k-napiontek/kibitz https://github.com/k-napiontek/kibitz
+brew install kibitz
 kibitz
 ```
 
-The first command pours a prebuilt app. Nothing is compiled on your machine and
-there is no Gatekeeper warning to click through. The second one starts it, which
-is the one thing a package manager should not do for you.
+The tap is a one-off. The install pours a prebuilt app: nothing is compiled on
+your machine and there is no Gatekeeper warning to click through. The last line
+starts it, which is the one thing a package manager should not do for you.
+
+Afterwards `brew upgrade kibitz` works like anything else you have installed.
+
+The tap needs the URL spelled out because `brew tap user/name` on its own is
+shorthand for `github.com/user/homebrew-name`, and this repository is called
+`kibitz`. Giving Homebrew the URL keeps the formula in the same repository as
+the source rather than in a second one that exists only to hold a single file.
 
 kibitz then asks for the Accessibility permission, which it needs to read the
 sentence you just finished, and adds itself to your login items. Turn that off
@@ -163,9 +172,11 @@ xattr $(brew --prefix)/opt/kibitz/Kibitz.app     # prints no com.apple.quarantin
 ```
 
 The app is signed ad-hoc, which is all Apple Silicon asks of code that is not
-quarantined. The bottle is built in GitHub Actions on a `v*` tag and the formula
-is generated from what was actually published, so the checksums in the tap
-cannot drift from the artifact.
+quarantined. The bottle is built in GitHub Actions on a `v*` tag, and the same
+run rewrites `Formula/kibitz.rb` from what it actually published, so the
+checksums cannot drift from the artifact they describe. That formula is
+generated: edit `packaging/kibitz.rb.template` instead, or the next release will
+overwrite your change.
 
 If you are on hardware the bottle was not built for, `brew` falls back to
 compiling from source and you will need the Command Line Tools. Everyone on a
