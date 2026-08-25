@@ -1,0 +1,9 @@
+{
+  "_comment": "The body DeepSeek returns alongside a non-200 status.",
+  "error": {
+    "message": "Authentication Fails, Your api key: ****ake1 is invalid",
+    "type": "authentication_error",
+    "param": null,
+    "code": "invalid_request_error"
+  }
+}

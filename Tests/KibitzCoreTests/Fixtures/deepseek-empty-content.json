@@ -1,0 +1,10 @@
+{
+  "_comment": "DeepSeek documents JSON mode as occasionally returning empty content. The provider retries once rather than reporting a verdict-shaped nothing.",
+  "id": "e4f5a6b7-0000-4000-8000-abcdefabcdef",
+  "object": "chat.completion",
+  "model": "deepseek-v4-flash",
+  "choices": [
+    { "index": 0, "message": { "role": "assistant", "content": "" }, "finish_reason": "stop" }
+  ],
+  "usage": { "prompt_cache_hit_tokens": 1408, "prompt_cache_miss_tokens": 24, "completion_tokens": 0 }
+}
