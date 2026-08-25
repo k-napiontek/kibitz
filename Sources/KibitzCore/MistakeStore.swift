@@ -223,6 +223,17 @@ public actor MistakeStore {
         return result
     }
 
+    /// Everything the review window needs, in one hop across the actor.
+    public func review(
+        since: Date, now: Date, limits: MistakeDigest.Limits = .default
+    ) throws -> MistakeDigest {
+        MistakeDigest.build(
+            from: try mistakes(since: since, now: now),
+            counts: try counts(since: since, now: now),
+            limits: limits
+        )
+    }
+
     /// Both halves of the review header, read together so they always describe
     /// the same span of days.
     ///
