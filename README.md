@@ -37,22 +37,52 @@ mistakes you actually repeat, and you pick which ones become Anki cards.
 - macOS 26 or later, Apple Silicon
 - Xcode Command Line Tools, because kibitz compiles on your machine. Run
   `xcode-select --install` if you do not have them.
-- **A Claude Max subscription or an Anthropic API key.** kibitz has no hosted
+- **A Claude Max subscription or a DeepSeek API key.** kibitz has no hosted
   backend. You bring your own model access and you pay for your own usage.
 
 ## What it costs
 
-kibitz is free. The model calls are not. Measured on Claude Sonnet 5:
+kibitz is free. The model calls are not. Pick a backend from the menu bar:
 
-| Backend | Latency per check | Cost per check |
-|---|---|---|
-| Claude Max subscription, via the `claude` CLI | ~5 s | ~$0.031 of quota |
-| Anthropic API key | ~0.5 s | ~$0.0012 |
+| Backend | Auth | Latency per check | Cost per check |
+|---|---|---|---|
+| Claude subscription, via the `claude` CLI | Claude Max, no key | ~5-7 s | ~$0.03 of quota, up to ~$0.09 on a cold cache |
+| DeepSeek API | API key in your Keychain | measure it yourself | ~$0.0001 |
 
-The subscription backend needs no API key and is the easiest way to start, but
-it is roughly 25x more expensive per check and far too slow to check sentences
-as you type. **Automatic mode requires an API key.** The app tells you this
-rather than letting you switch on a mode that would feel broken.
+The subscription backend needs no API key and is the easiest way to start. It is
+also, by a wide margin, the expensive one: the `claude` CLI ships its own system
+prompt and tool definitions on every invocation, so a 40-character sentence goes
+out as a ~22,000-token request. That overhead cannot be turned off while using a
+subscription.
+
+The DeepSeek backend sends the coaching prompt and nothing else, and DeepSeek's
+prefix cache serves it back at $0.007-0.014 per million tokens. That is where
+the 300x gap comes from.
+
+The latency column is deliberately not filled in for DeepSeek. Cost is a
+property of the price list; speed is a property of DeepSeek's endpoint on the
+day you use it. Measure it on your own machine:
+
+```
+swift run kibitz-check "I have 20 years and I work here since 2020." --backend deepseek
+```
+
+**Automatic mode requires an API key.** Five seconds after you finished a
+sentence, by which time you have typed two more, is worse than no popup at all,
+so the app disables the toggle on the subscription backend rather than letting
+you switch on a mode that would feel broken.
+
+## Choosing a backend
+
+Everything lives in the menu bar icon:
+
+- **Backend** - Claude subscription or DeepSeek API. Nothing is switched for
+  you: storing a key never silently reroutes your sentences.
+- **DeepSeek model** - `deepseek-v4-flash` by default, `deepseek-v4-pro` when
+  you want the better judgement and will pay 3x for it.
+- **Set DeepSeek API key...** - stored in your login Keychain, never in the app
+  bundle, a preferences file or an environment variable. Get one at
+  platform.deepseek.com.
 
 ## Install
 
@@ -86,9 +116,11 @@ asks for it. Here is exactly what it does:
   read. This is not configurable.
 - **Your own language stays local.** Text that is not English is discarded
   before any network call, so writing in your native language sends nothing.
-- Sentences that pass those checks are sent to Anthropic to be checked. Nothing
-  is sent anywhere else. There is no telemetry and no server operated by this
-  project.
+- Sentences that pass those checks are sent to whichever backend you selected,
+  Anthropic or DeepSeek, and nowhere else. There is no telemetry and no server
+  operated by this project. Which one you pick is a real privacy decision, and
+  it is why the backend is an explicit menu choice rather than something the app
+  infers from what is on your machine.
 - The mistake log is a plain SQLite file on your machine. Delete it whenever
   you like.
 
@@ -111,7 +143,7 @@ See `CONTRIBUTING.md`.
 ```
 git clone https://github.com/k-napiontek/kibitz
 cd kibitz
-./scripts/test.sh          # 58 tests
+./scripts/test.sh          # 133 tests
 swift build -c release
 ```
 
