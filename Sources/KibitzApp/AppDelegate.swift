@@ -18,6 +18,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Optional because a database that will not open must cost you the log, not
     /// the correction you pressed the hotkey for.
     private var mistakes: MistakeStore?
+    private let review = ReviewWindowController()
+    private let reviewSettings = ReviewSettings()
 
     private var statusItem: NSStatusItem?
     /// Shown in the menu. The unified log is not readable everywhere, so the app
@@ -286,6 +288,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             withTitle: "Check now  \(Self.hotkeyLabel)",
             action: #selector(checkNow), keyEquivalent: ""
         ).target = self
+        menu.addItem(
+            withTitle: "Review mistakes...",
+            action: #selector(openReview), keyEquivalent: ""
+        ).target = self
         menu.addItem(.separator())
         menu.addItem(makeBackendMenuItem())
         menu.addItem(makeModelMenuItem())
@@ -449,6 +455,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.image = NSImage(systemSymbolName: "exclamationmark.bubble", accessibilityDescription: "error")
             button.toolTip = message
         }
+    }
+
+    @objc private func openReview() {
+        review.show(store: mistakes, settings: reviewSettings)
+        lastEvent = "Opened the review"
     }
 
     @objc private func checkNow() {
