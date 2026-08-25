@@ -1,0 +1,54 @@
+class Kibitz < Formula
+  desc "Instant English writing feedback on macOS, explained in your own language"
+  homepage "https://github.com/k-napiontek/kibitz"
+  url "https://github.com/k-napiontek/kibitz/archive/refs/tags/v0.2.0.tar.gz"
+  version "0.2.0"
+  sha256 "9eb5c8a59fadebed0e167a69ab9e057f2294a0fd1d1eb7eec62ee86de0f9d7c3"
+  license "MIT"
+
+  bottle do
+    root_url "https://github.com/k-napiontek/kibitz/releases/download/v0.2.0"
+    sha256 cellar: :any_skip_relocation, arm64_tahoe: "61557a2929743943a8640d36ea414a3b44da91985a8293c4e341e444a9a5b5d5"
+  end
+
+  depends_on arch: :arm64
+  depends_on macos: :tahoe
+  # Only reached when there is no bottle for this platform. Anyone on a
+  # supported Mac pours a prebuilt one and never compiles anything.
+  depends_on xcode: :build
+
+  def install
+    # SwiftPM writes its caches under HOME, and Homebrew's sandbox makes the
+    # real one unwritable. Without this it warns and re-downloads on every build.
+    ENV["HOME"] = buildpath
+    ENV["VERSION"] = version.to_s
+    # Ad-hoc on purpose. Notarising needs a paid Apple account, and a bottle is
+    # never quarantined, so an ad-hoc signature is all macOS asks of it.
+    ENV["CODESIGN_IDENTITY"] = "-"
+    system "./scripts/bundle.sh", "#{prefix}/Kibitz.app"
+
+    # opt_prefix, never prefix: prefix carries the version and is deleted on
+    # every upgrade, which would leave this shim pointing at nothing.
+    (bin/"kibitz").write <<~SH
+      #!/bin/sh
+      exec open -a "#{opt_prefix}/Kibitz.app" "$@"
+    SH
+  end
+
+  def caveats
+    <<~EOS
+      Start kibitz once with:
+        kibitz
+
+      It will ask for the Accessibility permission, which it needs to read the
+      sentence you just finished. After that it starts at login. Turn that off
+      whenever you like from the menu bar: Start at login.
+    EOS
+  end
+
+  test do
+    assert_predicate prefix/"Kibitz.app/Contents/MacOS/kibitz", :exist?
+    assert_match "com.knapiontek.kibitz",
+                 shell_output("codesign -dv #{prefix}/Kibitz.app 2>&1")
+  end
+end
