@@ -11,7 +11,8 @@ import SwiftUI
 /// CGEventTap that consumes the keystroke, which is not worth it in v1.
 /// macOS constrains ordinary windows so they cannot be dragged under the menu
 /// bar. For a small floating panel that is just an invisible wall, so it is
-/// lifted here.
+/// lifted here. `PopupPlacement` is consequently the only thing keeping the
+/// panel on screen.
 private final class FreelyMovablePanel: NSPanel {
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
         frameRect
@@ -20,6 +21,11 @@ private final class FreelyMovablePanel: NSPanel {
 
 @MainActor
 final class PopupController {
+
+    /// The width the content is measured at. `PopupView` caps itself at the same
+    /// number, so the measured size is the size the panel actually takes, which
+    /// placement now depends on.
+    static let contentWidth: CGFloat = 440
 
     /// Removes the position saved by an earlier build.
     ///
@@ -59,7 +65,7 @@ final class PopupController {
     func show(
         verdict: Verdict,
         original: String,
-        at anchor: CGRect?,
+        at anchor: TextAnchor,
         hotkeyLabel: String,
         onApply: @escaping () -> Void
     ) {
@@ -82,8 +88,23 @@ final class PopupController {
         let controller = NSHostingController(rootView: view)
         controller.sizingOptions = []
         let size = controller.sizeThatFits(
-            in: NSSize(width: 440, height: CGFloat.greatestFiniteMagnitude)
+            in: NSSize(width: Self.contentWidth, height: CGFloat.greatestFiniteMagnitude)
         )
+
+        let layout = screenLayout()
+        DiagnosticLog.write("screens: \(describe(layout))")
+        guard let topLeft = PopupPlacement.topLeft(
+            panelSize: size, anchor: anchor, layout: layout
+        ) else {
+            // No display attached: a locked screen, or every monitor asleep.
+            // Placing the panel anyway would put it at the origin of nowhere.
+            DiagnosticLog.write("popup: no display to place it on, skipped")
+            return
+        }
+        DiagnosticLog.write("""
+            popup: source=\(anchor.source.rawValue) ax=\(anchor.rect.debugDescription) \
+            topLeft=\(topLeft.debugDescription)
+            """)
 
         let panel = FreelyMovablePanel(
             contentRect: NSRect(origin: .zero, size: size),
@@ -101,11 +122,13 @@ final class PopupController {
         panel.ignoresMouseEvents = false
         // Drag it anywhere: the anchor is a good guess, not always the right place.
         panel.isMovableByWindowBackground = true
-        panel.setFrameTopLeftPoint(origin(for: size, anchor: anchor))
+        // Size before position. Resizing afterwards is what made the computed
+        // point and the placed frame disagree.
+        panel.setContentSize(size)
+        panel.setFrameTopLeftPoint(topLeft)
         panel.orderFrontRegardless()
         // Log where it actually is. Logging the computed value while placing the
         // panel somewhere else is what hid the pinning bug.
-        panel.setContentSize(size)
         DiagnosticLog.write("popup: placed at \(panel.frame.debugDescription)")
         // Log again once SwiftUI has settled. Logging only at creation time is
         // what hid the window growing after the fact.
@@ -114,7 +137,6 @@ final class PopupController {
             try? await Task.sleep(for: .milliseconds(400))
             DiagnosticLog.write("popup: settled at \(panelRef.frame.debugDescription)")
         }
-
 
         self.panel = panel
         let timeout = autoDismiss
@@ -141,39 +163,23 @@ final class PopupController {
 
     var isVisible: Bool { panel != nil }
 
-    /// Sits just below the text it is correcting.
+    /// The only place `NSScreen` is read.
     ///
-    /// Accessibility reports screen coordinates with the origin at the top left
-    /// of the primary display; AppKit measures from the bottom left, so the y
-    /// axis has to be flipped against that same primary screen.
-    private func origin(for size: NSSize, anchor: CGRect?) -> NSPoint {
-        // Enough to clear the text and its cursor. At 6 the panel sat directly on
-        // the line it was correcting.
-        let gap: CGFloat = 14
-        var point: NSPoint
+    /// Everything downstream of this is a value type, so a monitor arrangement
+    /// can be reproduced in a test without plugging in a second monitor. None of
+    /// the placement bugs this replaced were catchable otherwise.
+    private func screenLayout() -> ScreenLayout {
+        ScreenLayout(
+            screens: NSScreen.screens.map {
+                ScreenLayout.Screen(frame: $0.frame, visibleFrame: $0.visibleFrame)
+            }
+        )
+    }
 
-        if let anchor, anchor.width > 0, anchor.height > 0 {
-            let primaryHeight = NSScreen.screens.first?.frame.maxY ?? 0
-            point = NSPoint(x: anchor.minX, y: primaryHeight - anchor.maxY - gap)
-        } else {
-            let mouse = NSEvent.mouseLocation
-            point = NSPoint(x: mouse.x, y: mouse.y - gap)
-        }
-
-        // Keep it on the screen the anchor actually lives on.
-        let screen = NSScreen.screens.first { $0.frame.contains(point) }
-            ?? NSScreen.main
-            ?? NSScreen.screens[0]
-        let visible = screen.visibleFrame
-
-        point.x = min(max(point.x, visible.minX + 8), visible.maxX - size.width - 8)
-        // If there is no room below, flip above the text rather than clipping.
-        if point.y - size.height < visible.minY + 8, let anchor {
-            let primaryHeight = NSScreen.screens.first?.frame.maxY ?? 0
-            point.y = primaryHeight - anchor.minY + size.height + gap
-        }
-        point.y = min(max(point.y, visible.minY + size.height + 8), visible.maxY - 8)
-        DiagnosticLog.write("popup: anchor=\(anchor?.debugDescription ?? "nil") computed=\(point.debugDescription)")
-        return point
+    /// A monitor arrangement cannot be reconstructed from a log without this.
+    private func describe(_ layout: ScreenLayout) -> String {
+        layout.screens.enumerated()
+            .map { "\($0.offset) frame=\($0.element.frame.debugDescription) visible=\($0.element.visibleFrame.debugDescription)" }
+            .joined(separator: "  ")
     }
 }

@@ -30,7 +30,7 @@ struct PopupView: View {
             footer
         }
         .padding(14)
-        .frame(maxWidth: 460, alignment: .leading)
+        .frame(maxWidth: 440, alignment: .leading)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
         .overlay(
             RoundedRectangle(cornerRadius: 12)
