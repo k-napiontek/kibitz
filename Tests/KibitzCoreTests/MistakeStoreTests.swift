@@ -245,6 +245,28 @@ struct MistakeStoreTests {
         #expect(try await store.mistakes(since: window.since, now: window.now).count == 1)
     }
 
+    @Test("the store hands back a digest, so the review makes one round trip")
+    func buildsADigestForTheWindow() async throws {
+        let url = scratch()
+        defer { clean(url) }
+        let store = try MistakeStore(url: url)
+        for index in 0..<3 {
+            try await store.record(verdict(category: .article), original: "a \(index)", app: nil, at: noon)
+        }
+        try await store.record(verdict(category: .tense), original: "t", app: nil, at: noon)
+        try await store.record(
+            verdict(.ok, category: .noIssue, corrected: "", whyL1: ""),
+            original: "fine", app: nil, at: noon
+        )
+
+        let window = week(around: noon)
+        let digest = try await store.review(since: window.since, now: window.now)
+
+        #expect(digest.groups.map(\.category) == [.article, .tense])
+        #expect(digest.counts.checked == 5)
+        #expect(digest.counts.withMistake == 4)
+    }
+
     @Test("the log lives beside the diagnostics, where the README says it does")
     func defaultPathIsUnderApplicationSupport() {
         let path = MistakeStore.defaultURL.path
