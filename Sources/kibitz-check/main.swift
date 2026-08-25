@@ -87,7 +87,11 @@ print("sentence  : \(sentence)")
 print("verdict   : \(response.verdict.outcome.rawValue)  [\(response.verdict.category.rawValue), \(response.verdict.severity.rawValue)]")
 print("corrected : \(response.verdict.corrected)")
 print("why_l1    : \(response.verdict.whyL1.isEmpty ? "-" : response.verdict.whyL1)")
-print("popup     : \(filter.apply(response.verdict) == .show ? "SHOWN" : "suppressed")")
+// Both paths, because the muting rules only ever applied to automatic checking
+// and this harness is how that path gets judged when it lands.
+let onHotkey = filter.apply(response.verdict, source: .hotkey) == .show
+let whileTyping = filter.apply(response.verdict, source: .automatic) == .show
+print("popup     : \(onHotkey ? "SHOWN" : "suppressed")  (automatic: \(whileTyping ? "shown" : "suppressed"))")
 print("tokens    : \(response.cacheReadTokens) cached, \(response.uncachedInputTokens) fresh")
 // DeepSeek returns no cost of its own, so that figure is computed from list
 // prices and is an upper bound. The CLI reports what it actually billed.

@@ -1,5 +1,5 @@
 {
-  "description": "Prompt quality gate. Errors must be caught; correct sentences must be left alone. The false-positive rate matters more than the catch rate: a popup on a correct sentence teaches the writer to ignore the tool.",
+  "description": "Prompt quality gate. Errors must be caught; correct sentences must be left alone. The false-positive rate matters more than the catch rate: a popup on a correct sentence teaches the writer to ignore the tool. Where a case carries \"corrected\", the rewrite must be one of those sentences: a verdict can name the right category and still hand back English nobody could send.",
   "cases": [
     {"sentence": "I sent you email yesterday about the deployment.", "expect": "error", "category": "article"},
     {"sentence": "I am software engineer with five years of experience.", "expect": "error", "category": "article"},
@@ -43,6 +43,14 @@
     {"sentence": "Nothing changed on our side.", "expect": "ok"},
     {"sentence": "Let me know if that makes sense.", "expect": "ok"},
     {"sentence": "I have worked on this codebase since 2020.", "expect": "ok", "note": "trap: correct present perfect, near-miss of a seeded error"},
-    {"sentence": "We have been running the migration for three hours.", "expect": "ok", "note": "trap: correct 'for' plus present perfect continuous"}
+    {"sentence": "We have been running the migration for three hours.", "expect": "ok", "note": "trap: correct 'for' plus present perfect continuous"},
+    {"sentence": "But i dont see something like this", "expect": "error", "category": "word-choice", "corrected": ["But I don't see anything like this."], "note": "chat shape: the lowercase i and the missing apostrophe are noise, 'something' in a negative is the finding"},
+    {"sentence": "why i dont have oc command?", "expect": "error", "category": "word-order", "corrected": ["Why don't I have the oc command?"], "note": "chat shape: a question with no operator, buried under mechanical slips"},
+    {"sentence": "how long i must wait for eks start running?", "expect": "error", "category": "word-order", "corrected": ["How long must I wait for EKS to start running?", "How long do I have to wait for EKS to start running?"], "note": "chat shape: inversion plus the infinitive after 'start'"},
+    {"sentence": "in the openshift you can create a project", "expect": "error", "category": "article", "corrected": ["In OpenShift you can create a project.", "In OpenShift, you can create a project."], "note": "chat shape: a spurious 'the' on a product name, under a lowercase start"},
+    {"sentence": "i am working on this ticket since monday", "expect": "error", "category": "tense", "corrected": ["I have been working on this ticket since Monday."], "note": "chat shape: the profile's present-perfect error as it is actually typed"},
+    {"sentence": "the tests passed so i merged it", "expect": "error", "category": "capitalization", "corrected": ["The tests passed, so I merged it.", "The tests passed so I merged it."], "note": "the other arm: a mid-sentence lowercase 'i' is a real mistake, not a chat artifact, and with nothing else wrong a mechanical category is the honest label"},
+    {"sentence": "we deployed the fix yesterday and everything looks fine", "expect": "ok", "note": "trap: chat shape only - a lowercase start and no full stop are artifacts of the box, not mistakes worth a popup"},
+    {"sentence": "can you take a look at the pipeline when you have a moment", "expect": "ok", "note": "trap: chat shape only, and a question with no question mark"}
   ]
 }

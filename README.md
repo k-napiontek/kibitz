@@ -41,9 +41,10 @@ for. Seriousness only breaks ties: one bad slip you will never make again is
 worth less study than nine small ones you make daily. Inside a category the
 serious mistakes come first.
 
-The categories kibitz mutes from the popup so they do not interrupt typing -
-spelling, punctuation, capitalization - still appear here. They were never worth
-a bubble mid-sentence; they are worth seeing once a week.
+Spelling, punctuation and capitalization appear here too. Automatic checking
+mutes those three so they never interrupt a sentence you are still typing, but
+they are worth seeing once a week. A hotkey press is never muted: you asked, so
+you get the answer, whichever category it turns out to be.
 
 Tick the ones you want and export. You get a plain tab-separated file:
 
@@ -105,8 +106,10 @@ it on yours:
 swift run kibitz-check "I have 20 years and I work here since 2020." --backend deepseek
 ```
 
-On the same 42-case corpus, DeepSeek caught 22 of 22 real mistakes and flagged
-none of the 20 correct sentences, finishing the whole suite in 6 seconds.
+On the same 50-case corpus, DeepSeek caught 28 of 28 real mistakes, flagged none
+of the 22 correct sentences, and rewrote all 6 of the cases that pin an exact
+correction into a sentence you could send unchanged. The whole suite runs in
+about 20 seconds for roughly a cent.
 
 **Automatic mode requires an API key.** Five seconds after you finished a
 sentence, by which time you have typed two more, is worse than no popup at all,

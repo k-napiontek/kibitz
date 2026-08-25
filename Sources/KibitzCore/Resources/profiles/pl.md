@@ -24,6 +24,12 @@
 **make vs do.**
 - `I need to make my homework.` → `I need to do my homework.` (word-choice, high)
 
+**`some-` left standing under a negation.** Polish negates the verb and leaves
+`cos`/`gdzies` alone, so `nie widze czegos takiego` comes out as `something`.
+English switches the whole series to `any-`.
+- `I don't see something like this.` → `I don't see anything like this.` (word-choice, high)
+- `He did not say something about it.` → `He did not say anything about it.` (word-choice, high)
+
 **Uncountables treated as countable.**
 - `I need some informations.` → `I need some information.` (agreement, high)
 - `He gave me a good advice.` → `He gave me good advice.` (agreement, high)
@@ -31,6 +37,17 @@
 **Word order, especially adverbs and questions.**
 - `I know not what to do.` → `I do not know what to do.` (word-order, high)
 - `Tell me where is the file.` → `Tell me where the file is.` (word-order, high)
+
+**Indirect questions built as statements.** Polish `wyjaśnij co to jest X` maps
+word for word onto `explain this is X`, which is not a sentence in English. The
+wh-word carries the question and the clause after it stays declarative.
+- `explain this is scc in the openshift` → `Explain what SCC is in OpenShift.` (word-order, high)
+- `Show me how it works this.` → `Show me how this works.` (word-order, high)
+
+**Direct questions with no operator.** Polish forms a question by intonation
+alone, so the `do`/`does`/`did` goes missing and the subject stays in front.
+- `why i dont have oc command?` → `Why don't I have the oc command?` (word-order, high)
+- `how long i must wait for eks start running?` → `How long must I wait for EKS to start running?` (word-order, high)
 
 **Naturalness - correct grammar, wrong idiom.**
 - `I will think about it in my head.` → `I will think it over.` (naturalness, low)
