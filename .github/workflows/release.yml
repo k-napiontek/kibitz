@@ -1,0 +1,126 @@
+name: release
+
+# Cutting a release is: tag it, push the tag.
+#
+#   git tag v0.2.0 && git push origin v0.2.0
+#
+# Everything below is what "brew install k-napiontek/tap/kibitz" needs in order
+# to pour a prebuilt app rather than compile one on someone else's machine.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-26
+    # Lifted to the job so the optional tap push can test for it: the `secrets`
+    # context is not available in a step-level `if`.
+    env:
+      TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - id: meta
+        name: Work out the version and the URLs
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          {
+            echo "version=$VERSION"
+            echo "url=https://github.com/${{ github.repository }}/archive/refs/tags/${GITHUB_REF_NAME}.tar.gz"
+            echo "root=https://github.com/${{ github.repository }}/releases/download/${GITHUB_REF_NAME}"
+          } >> "$GITHUB_OUTPUT"
+
+      # Nothing gets a tag that cannot pass its own suite.
+      - name: Test
+        run: ./scripts/test.sh
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes
+
+      - id: source
+        name: Checksum the source tarball
+        run: |
+          set -euo pipefail
+          curl -fsSL -o source.tar.gz "${{ steps.meta.outputs.url }}"
+          echo "sha=$(shasum -a 256 source.tar.gz | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      # A bottle can only be built from a formula, so the formula comes first,
+      # without a bottle block, purely so Homebrew has something to build.
+      - name: Set up a local tap
+        run: |
+          set -euo pipefail
+          brew tap-new k-napiontek/tap --no-git
+          python3 packaging/render-formula.py \
+            --version "${{ steps.meta.outputs.version }}" \
+            --url "${{ steps.meta.outputs.url }}" \
+            --sha256 "${{ steps.source.outputs.sha }}" \
+            > "$(brew --repository k-napiontek/tap)/Formula/kibitz.rb"
+
+      - name: Build the bottle
+        run: |
+          set -euo pipefail
+          brew install --build-bottle k-napiontek/tap/kibitz
+          brew bottle --json --no-rebuild \
+            --root-url="${{ steps.meta.outputs.root }}" \
+            k-napiontek/tap/kibitz
+
+      # `brew bottle` writes kibitz--0.2.0..., with two hyphens, but `brew
+      # install` asks the server for kibitz-0.2.0..., with one. Uploading the
+      # file under the name it was written with produces a 404 for every user
+      # and no error anywhere else. Both names are in the JSON, so take them
+      # from there rather than reimplementing the rule.
+      - name: Upload the bottle under the name Homebrew will ask for
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          JSON="$(ls ./*.bottle.json)"
+          python3 - "$JSON" <<'PY'
+          import json, pathlib, sys
+          tags = next(iter(json.load(open(sys.argv[1])).values()))["bottle"]["tags"]
+          for meta in tags.values():
+              pathlib.Path(meta["local_filename"]).rename(meta["filename"])
+              print(f"{meta['local_filename']} -> {meta['filename']}")
+          PY
+          gh release upload "$GITHUB_REF_NAME" ./*.bottle.tar.gz
+
+      - name: Render the final formula
+        run: |
+          set -euo pipefail
+          python3 packaging/render-formula.py \
+            --version "${{ steps.meta.outputs.version }}" \
+            --url "${{ steps.meta.outputs.url }}" \
+            --sha256 "${{ steps.source.outputs.sha }}" \
+            --bottle-json "$(ls ./*.bottle.json)" \
+            > kibitz.rb
+          {
+            echo '## Formula for k-napiontek/homebrew-tap'
+            echo '```ruby'
+            cat kibitz.rb
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Optional. Without TAP_TOKEN the release and the bottle are still
+      # published and the formula is printed in the job summary above, so the
+      # tap can be updated by hand rather than the release failing.
+      - name: Push the formula to the tap
+        if: ${{ env.TAP_TOKEN != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.TAP_TOKEN }}
+        run: |
+          set -euo pipefail
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository_owner }}/homebrew-tap.git" tap
+          mkdir -p tap/Formula
+          cp kibitz.rb tap/Formula/kibitz.rb
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/kibitz.rb
+          git commit -m "chore: kibitz ${{ steps.meta.outputs.version }}"
+          git push
