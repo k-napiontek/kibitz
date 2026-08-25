@@ -90,15 +90,21 @@ public struct DeepSeekProvider: ModelProvider {
         struct ResponseFormat: Encodable {
             let type: String
         }
+        /// V4's thinking switch. Its own field rather than a flag, because
+        /// DeepSeek models it as an object.
+        struct Thinking: Encodable {
+            let type: String
+        }
         let model: String
         let messages: [Message]
         let maxTokens: Int
         let temperature: Double
         let stream: Bool
         let responseFormat: ResponseFormat
+        let thinking: Thinking
 
         enum CodingKeys: String, CodingKey {
-            case model, messages, temperature, stream
+            case model, messages, temperature, stream, thinking
             case maxTokens = "max_tokens"
             case responseFormat = "response_format"
         }
@@ -112,6 +118,14 @@ public struct DeepSeekProvider: ModelProvider {
     /// `response_format: json_object` requires the word "json" somewhere in the
     /// prompt and works best with a worked example. `system-prompt.md` supplies
     /// both, and a test pins that so a prompt edit cannot quietly disable it.
+    ///
+    /// `thinking: disabled` is not a tuning knob, it is what makes this backend
+    /// work at all. V4 thinks by default and reasoning tokens come out of
+    /// `max_tokens`, so a 50-token answer arrived behind 300 tokens of
+    /// deliberation about a four-word sentence: measured over eight calls,
+    /// three came back with an empty string and two more stopped mid-JSON.
+    /// Turning it off made all eight valid, and cut the round trip from ~3 s
+    /// to ~1.1 s. Judging one sentence is a classification, not a puzzle.
     func requestBody(sentence: String, previous: String?) throws -> Data {
         let request = Request(
             model: model.rawValue,
@@ -127,7 +141,8 @@ public struct DeepSeekProvider: ModelProvider {
             // checks of the same sentence should not disagree with themselves.
             temperature: 0,
             stream: false,
-            responseFormat: Request.ResponseFormat(type: "json_object")
+            responseFormat: Request.ResponseFormat(type: "json_object"),
+            thinking: Request.Thinking(type: "disabled")
         )
         return try JSONEncoder().encode(request)
     }

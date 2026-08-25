@@ -55,6 +55,16 @@ struct DeepSeekProviderTests {
         #expect(try body(sentence: "Hello there.")["max_tokens"] as? Int == 300)
     }
 
+    @Test("turns thinking off, or the answer never fits in the budget")
+    func disablesThinking() throws {
+        let thinking = try #require(
+            body(sentence: "Hello there.")["thinking"] as? [String: String],
+            "no thinking field: V4 thinks by default and spends max_tokens on reasoning"
+        )
+
+        #expect(thinking["type"] == "disabled")
+    }
+
     @Test("does not stream, so the parser sees one whole body")
     func doesNotStream() throws {
         #expect(try body(sentence: "Hello there.")["stream"] as? Bool == false)

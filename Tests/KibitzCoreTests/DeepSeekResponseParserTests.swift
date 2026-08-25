@@ -82,6 +82,15 @@ struct DeepSeekResponseParserTests {
         }
     }
 
+    @Test("running out of budget is reported as that, not as an empty reply")
+    func reportsTruncation() throws {
+        // Retrying this would burn the same budget the same way. It is a
+        // different condition from an empty reply, and it needs a different name.
+        #expect(throws: DeepSeekError.truncated) {
+            try parse("deepseek-truncated-response")
+        }
+    }
+
     @Test("a reply that is not JSON is a skipped check, not a crash")
     func rejectsNonJSONContent() throws {
         let payload = #"{"choices":[{"message":{"content":"I'm not sure what you mean."}}]}"#

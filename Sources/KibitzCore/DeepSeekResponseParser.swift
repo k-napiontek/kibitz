@@ -9,8 +9,11 @@ public enum DeepSeekError: Error, Equatable {
     case insufficientBalance
     case rateLimited
     case serverError(status: Int, message: String)
-    /// Documented as an occasional behaviour of JSON mode.
+    /// Documented as an occasional behaviour of JSON mode. Worth one retry.
     case emptyContent
+    /// The output budget ran out before the JSON was finished. Retrying spends
+    /// the same budget the same way, so this one is not retried.
+    case truncated
     case replyWasNotJSON(String)
     case timedOut
     case transport(String)
@@ -25,6 +28,7 @@ public enum DeepSeekResponseParser {
                 let content: String?
             }
             let message: Message?
+            let finishReason: String?
         }
         struct Usage: Decodable {
             let promptCacheHitTokens: Int?
@@ -65,12 +69,19 @@ public enum DeepSeekResponseParser {
             )
         }
 
-        let content = envelope.choices?.first?.message?.content ?? ""
+        let choice = envelope.choices?.first
+        let content = choice?.message?.content ?? ""
+        // "length" means the model was cut off mid-answer. Distinguished from an
+        // empty reply because only one of the two is worth retrying.
+        let ranOutOfBudget = choice?.finishReason == "length"
+
         guard !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw DeepSeekError.emptyContent
+            throw ranOutOfBudget ? DeepSeekError.truncated : DeepSeekError.emptyContent
         }
         guard let verdict = VerdictDecoder.decode(from: content) else {
-            throw DeepSeekError.replyWasNotJSON(content)
+            throw ranOutOfBudget
+                ? DeepSeekError.truncated
+                : DeepSeekError.replyWasNotJSON(content)
         }
 
         let usage = envelope.usage

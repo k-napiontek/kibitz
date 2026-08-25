@@ -425,6 +425,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return "DeepSeek returned \(status): \(message.prefix(80))"
             case .emptyContent:
                 return "DeepSeek returned an empty reply twice. Try again."
+            case .truncated:
+                return "DeepSeek hit its output limit before finishing the answer."
             case .replyWasNotJSON(let reply):
                 return "DeepSeek did not reply with JSON: \(reply.prefix(60))"
             case .timedOut:
