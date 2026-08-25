@@ -3,6 +3,9 @@ name: ci
 on:
   push:
     branches: [main]
+    # The release workflow commits the generated formula onto main. Rebuilding
+    # the whole suite for a file Homebrew reads and Swift never sees is waste.
+    paths-ignore: ["Formula/**"]
   pull_request:
 
 concurrency:
