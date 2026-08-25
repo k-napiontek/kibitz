@@ -54,24 +54,80 @@ struct FocusedTextReader {
         )
     }
 
-    /// Where to put the popup. Falls back to the mouse when the app cannot say.
-    func caretRect() -> CGRect? {
+    /// Where to anchor the popup, in Accessibility (top-left origin) coordinates.
+    ///
+    /// Tries hardest to land under the actual text. Falling back to the mouse
+    /// pointer puts the popup wherever the cursor happens to rest, which is
+    /// usually nowhere near what is being corrected.
+    func anchorRect() -> CGRect? {
         let systemWide = AXUIElementCreateSystemWide()
         AXUIElementSetMessagingTimeout(systemWide, 1.0)
         guard let element = copy(systemWide, kAXFocusedUIElementAttribute) else { return nil }
         let focused = element as! AXUIElement
-        guard let range = selectionRange(of: focused) else { return nil }
 
-        var query = CFRange(location: max(0, range.location - 1), length: 1)
+        if let range = selectionRange(of: focused) {
+            // The selected text itself, so the popup sits under what was checked.
+            if range.length > 0, let rect = bounds(of: focused, range: range) {
+                DiagnosticLog.write("anchor: selection bounds \(rect.debugDescription)")
+                return rect
+            }
+            let caret = CFRange(location: max(0, range.location - 1), length: 1)
+            if let rect = bounds(of: focused, range: caret), rect.height > 0 {
+                DiagnosticLog.write("anchor: caret bounds \(rect.debugDescription)")
+                return rect
+            }
+        }
+        // Chrome and WebKit expose geometry through text markers rather than
+        // character ranges, which is why kAXBoundsForRange returns nothing there.
+        if let rect = boundsFromTextMarkers(focused) {
+            DiagnosticLog.write("anchor: text marker bounds \(rect.debugDescription)")
+            return rect
+        }
+
+        // Only if it is plausibly a text run. Chrome reports the whole page as
+        // the focused field, and anchoring to a 900pt tall box puts the popup in
+        // a screen corner, which is worse than admitting we do not know.
+        if let rect = frame(of: focused), rect.height <= 160 {
+            DiagnosticLog.write("anchor: field frame \(rect.debugDescription)")
+            return rect
+        }
+        DiagnosticLog.write("anchor: NONE, falling back to mouse")
+        return nil
+    }
+
+    private func bounds(of element: AXUIElement, range: CFRange) -> CGRect? {
+        var query = range
         guard let axRange = AXValueCreate(.cfRange, &query) else { return nil }
         var result: CFTypeRef?
         guard AXUIElementCopyParameterizedAttributeValue(
-            focused, kAXBoundsForRangeParameterizedAttribute as CFString, axRange, &result
+            element, kAXBoundsForRangeParameterizedAttribute as CFString, axRange, &result
         ) == .success, let value = result else { return nil }
-
         var rect = CGRect.zero
-        guard AXValueGetValue(value as! AXValue, .cgRect, &rect) else { return nil }
+        guard AXValueGetValue(value as! AXValue, .cgRect, &rect), rect.width > 0, rect.height > 0
+        else { return nil }
         return rect
+    }
+
+    private func boundsFromTextMarkers(_ element: AXUIElement) -> CGRect? {
+        guard let markerRange = copy(element, "AXSelectedTextMarkerRange") else { return nil }
+        var result: CFTypeRef?
+        guard AXUIElementCopyParameterizedAttributeValue(
+            element, "AXBoundsForTextMarkerRange" as CFString, markerRange, &result
+        ) == .success, let value = result else { return nil }
+        var rect = CGRect.zero
+        guard AXValueGetValue(value as! AXValue, .cgRect, &rect), rect.width > 0, rect.height > 0
+        else { return nil }
+        return rect
+    }
+
+    private func frame(of element: AXUIElement) -> CGRect? {
+        guard let positionValue = copy(element, kAXPositionAttribute),
+              let sizeValue = copy(element, kAXSizeAttribute) else { return nil }
+        var origin = CGPoint.zero
+        var size = CGSize.zero
+        guard AXValueGetValue(positionValue as! AXValue, .cgPoint, &origin),
+              AXValueGetValue(sizeValue as! AXValue, .cgSize, &size) else { return nil }
+        return CGRect(origin: origin, size: size)
     }
 
     /// Electron apps expose nothing until an assistive client asks them to.
