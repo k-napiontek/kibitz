@@ -19,12 +19,13 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 cp "$BIN/KibitzApp" "$APP/Contents/MacOS/kibitz"
 
-# Bundle.module looks for the resource bundle beside the executable and in
-# Contents/Resources. Copy to both so it resolves either way.
+# Resources only. A .bundle inside Contents/MacOS is treated by codesign as a
+# code subcomponent, and a SwiftPM resource bundle has no Info.plist, so signing
+# fails with "bundle format unrecognized". BundledPrompt looks in
+# Contents/Resources, which is where it belongs anyway.
 for bundle in "$BIN"/*.bundle; do
     [ -e "$bundle" ] || continue
     cp -R "$bundle" "$APP/Contents/Resources/"
-    cp -R "$bundle" "$APP/Contents/MacOS/"
 done
 
 cat > "$APP/Contents/Info.plist" <<PLIST
@@ -50,11 +51,27 @@ PLIST
 # Signing matters more than it looks: macOS ties the Accessibility grant to the
 # binary's signature, so an ad-hoc signature that changes every build makes the
 # permission evaporate. A stable Apple Development identity keeps it.
-IDENTITY="${CODESIGN_IDENTITY:-$(security find-identity -v -p codesigning 2>/dev/null \
-    | grep -o '"Apple Development: [^"]*"' | head -1 | tr -d '"')}"
+# Any stable identity will do. A self-signed "Code Signing" certificate from
+# Keychain Access works as well as an Apple Development one for keeping the
+# Accessibility permission alive; it just cannot be distributed to others.
+IDENTITY="${CODESIGN_IDENTITY:-}"
+if [ -z "$IDENTITY" ]; then
+    IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null \
+        | grep -o '"Apple Development: [^"]*"' | head -1 | tr -d '"' || true)
+fi
+# Without -v, so a self-signed root still counts. Such a certificate reports
+# CSSMERR_TP_NOT_TRUSTED, which only means it is not a distribution identity.
+# codesign accepts it, and that is all the Accessibility permission needs.
+if [ -z "$IDENTITY" ]; then
+    # Match the SHA-1 only: the line may end with "(CSSMERR_TP_NOT_TRUSTED)".
+    IDENTITY=$(security find-identity -p codesigning 2>/dev/null \
+        | grep -oE '[0-9A-F]{40}' | head -1 || true)
+fi
 
 if [ -n "$IDENTITY" ]; then
-    codesign --force --deep --options runtime --sign "$IDENTITY" "$APP"
+    # No --options runtime: the hardened runtime is a notarisation requirement,
+    # and it makes codesign reject a self-signed identity.
+    codesign --force --deep --sign "$IDENTITY" "$APP"
     echo "signed with: $IDENTITY"
 else
     codesign --force --deep --sign - "$APP"
