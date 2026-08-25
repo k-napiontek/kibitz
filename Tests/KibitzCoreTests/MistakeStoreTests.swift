@@ -101,7 +101,7 @@ struct MistakeStoreTests {
 
         // Pins the contract VerdictFilter states: muted means "does not interrupt",
         // never "is not recorded", or the digest goes blind to whole categories.
-        #expect(VerdictFilter(config: .default).apply(slip) == .logOnly(.categoryMuted))
+        #expect(VerdictFilter(config: .default).apply(slip, source: .automatic) == .logOnly(.categoryMuted))
         try await store.record(slip, original: "I recieve it.", app: nil, at: noon)
 
         let window = week(around: noon)

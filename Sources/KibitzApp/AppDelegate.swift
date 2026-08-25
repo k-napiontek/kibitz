@@ -238,11 +238,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
             record(verdict, original: sentence, app: focused.appBundleID)
 
-            guard filter.apply(verdict) == .show else {
+            // `.hotkey` because every check the app can start today is one
+            // somebody asked for. When automatic checking lands it passes
+            // `.automatic` here and the muted categories start to mean something.
+            guard filter.apply(verdict, source: .hotkey) == .show else {
                 logger.notice("popup suppressed by the category filter")
-                lastEvent = verdict.outcome == .ok
-                    ? "That sentence looks correct"
-                    : "Found \(verdict.category.rawValue), muted by your settings"
+                lastEvent = "That sentence looks correct"
                 return
             }
             lastEvent = "Showed a fix for \(verdict.category.rawValue)"

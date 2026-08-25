@@ -10,9 +10,25 @@ struct Corpus: Decodable {
         let sentence: String
         let expect: String
         let category: String?
+        /// Every rewrite that counts as right, listed generously. Optional
+        /// because it only means something on an `error` case.
+        ///
+        /// The category alone never caught the failure this exists for: a
+        /// verdict can name the right category and still hand back a sentence
+        /// nobody could send. Free-form English makes a single golden string
+        /// brittle, so the answer is a set, and widening it is the normal fix
+        /// when a phrasing is genuinely fine.
+        let corrected: [String]?
         let note: String?
     }
     let cases: [Case]
+}
+
+/// Collapses runs of whitespace so a corpus entry wrapped across lines still
+/// matches. Everything else, case and punctuation included, has to be right:
+/// those are exactly what the tool is being graded on.
+func normalized(_ sentence: String) -> String {
+    sentence.split(whereSeparator: \.isWhitespace).joined(separator: " ")
 }
 
 /// Reads `--name value` out of the arguments, leaving the positional path and
@@ -75,6 +91,7 @@ struct Outcome: Sendable {
     let sentence: String
     let expected: String
     let expectedCategory: String?
+    let expectedCorrections: [String]?
     let note: String?
     let verdict: Verdict?
     let error: String?
@@ -96,11 +113,13 @@ let outcomes: [Outcome] = await withTaskGroup(of: Outcome.self) { group in
                 let response = try await provider.run(sentence: item.element.sentence, previous: nil)
                 return Outcome(index: item.offset, sentence: item.element.sentence,
                                expected: item.element.expect, expectedCategory: item.element.category,
+                               expectedCorrections: item.element.corrected,
                                note: item.element.note, verdict: response.verdict, error: nil,
                                costUSD: response.costUSD)
             } catch {
                 return Outcome(index: item.offset, sentence: item.element.sentence,
                                expected: item.element.expect, expectedCategory: item.element.category,
+                               expectedCorrections: item.element.corrected,
                                note: item.element.note, verdict: nil,
                                error: String(describing: error), costUSD: 0)
             }
@@ -120,6 +139,7 @@ print("\n" + String(repeating: "=", count: 76))
 
 var caught = 0, missed = 0, falsePositives = 0, correctlyQuiet = 0
 var categoryHits = 0, categoryTotal = 0, failures = 0
+var correctionHits = 0, correctionTotal = 0
 var totalCost = 0.0
 
 for o in outcomes {
@@ -136,6 +156,16 @@ for o in outcomes {
         categoryTotal += 1
         if v.category.rawValue == o.expectedCategory { categoryHits += 1 }
         else { print("category  expected \(o.expectedCategory ?? "?") got \(v.category.rawValue)  |  \(o.sentence)") }
+        if let acceptable = o.expectedCorrections, !acceptable.isEmpty {
+            correctionTotal += 1
+            if acceptable.map(normalized).contains(normalized(v.corrected)) {
+                correctionHits += 1
+            } else {
+                print("CORRECTION  \(o.sentence)")
+                print("            got      \(v.corrected)")
+                for candidate in acceptable { print("            accepted \(candidate)") }
+            }
+        }
     case ("error", false):
         missed += 1
         print("MISSED    \(o.sentence)")
@@ -157,12 +187,20 @@ func pct(_ a: Int, _ b: Int) -> String { b == 0 ? "n/a" : String(format: "%.0f%%
 print("caught          \(caught)/\(errorTotal)  (\(pct(caught, errorTotal)))")
 print("FALSE POSITIVES \(falsePositives)/\(okTotal)  (\(pct(falsePositives, okTotal)))   <- the number that matters")
 print("category match  \(categoryHits)/\(categoryTotal)  (\(pct(categoryHits, categoryTotal)))")
+print("correction match \(correctionHits)/\(correctionTotal)  (\(pct(correctionHits, correctionTotal)))")
 if failures > 0 { print("request errors  \(failures)") }
 print(String(format: "cost            $%.2f over %.0fs", totalCost, Date().timeIntervalSince(started)))
 
-// A tool that interrupts correct writing gets ignored, so that is the gate.
+// A tool that interrupts correct writing gets ignored, so that is the first
+// gate. The second is that a correction has to be a sentence you could send:
+// under-correcting to match the category you named was invisible here for as
+// long as only the category was graded.
 if falsePositives > 1 || failures > 0 {
     print("\nFAIL: too many false positives or request errors")
+    exit(1)
+}
+if correctionHits < correctionTotal {
+    print("\nFAIL: \(correctionTotal - correctionHits) correction(s) outside the accepted set")
     exit(1)
 }
 print("\nPASS")

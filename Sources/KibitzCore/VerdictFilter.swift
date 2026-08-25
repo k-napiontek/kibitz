@@ -38,8 +38,19 @@ public struct VerdictFilter: Sendable {
         self.config = config
     }
 
-    public func apply(_ verdict: Verdict) -> FilterOutcome {
+    /// The muting rules apply to `.automatic` only, because interrupting is the
+    /// only thing they exist to prevent, and a hotkey press is not an
+    /// interruption. It is a question, and a question is owed an answer.
+    ///
+    /// This distinction is not academic. `category` is one word, but `corrected`
+    /// is a whole rewritten sentence, and the two routinely disagree about how
+    /// much changed: a verdict labelled `capitalization` on
+    /// `explain this is scc in the openshift` also dropped a stray article.
+    /// Reading the label and discarding the sentence answered a deliberate press
+    /// with silence, for the majority of everything that was ever asked.
+    public func apply(_ verdict: Verdict, source: CaptureSource) -> FilterOutcome {
         guard verdict.outcome == .error else { return .logOnly(.sentenceIsCorrect) }
+        guard source == .automatic else { return .show }
         if config.mutedCategories.contains(verdict.category) { return .logOnly(.categoryMuted) }
         if config.muteLowSeverity, verdict.severity == .low { return .logOnly(.lowSeverity) }
         return .show

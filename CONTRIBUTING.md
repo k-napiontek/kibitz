@@ -38,6 +38,28 @@ swift build -c release
 because swift-testing ships there but is neither on SwiftPM's default search path
 nor able to cross-import Foundation. The script explains both.
 
+### The corpus is the gate on the prompt
+
+Nothing in the unit suite can tell you whether an edit to `system-prompt.md` made
+the coaching better or worse. That is what `Corpus/corpus.json` is for, and any
+change to the prompt or a language profile has to be graded against it:
+
+```
+swift run kibitz-corpus --backend deepseek
+```
+
+Three numbers come back. False positives on the correct sentences matter most: a
+bubble over correct writing teaches you to ignore the tool, so that is the one
+the run fails on. Category match says whether the label is the one worth
+teaching. Correction match compares the rewrite against the `corrected` list on
+a case, and exists because a verdict can name exactly the right category and
+still hand back English nobody could send.
+
+A correction mismatch is not automatically a regression. English has more than
+one right answer, and the run prints what came back next to what was accepted.
+If the new sentence is genuinely fine, add it to that case's `corrected` array;
+if it is not, the prompt is what needs the fix.
+
 ### Tests come first
 
 This project is built test first. Every behaviour change starts with a failing
