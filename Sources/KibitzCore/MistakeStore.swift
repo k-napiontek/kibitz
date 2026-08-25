@@ -32,6 +32,23 @@ public enum MistakeStoreError: Error, Equatable {
 /// are two tables instead of one.
 public actor MistakeStore {
 
+    /// Owns the open connection, purely so something with an ordinary `deinit`
+    /// can close it.
+    ///
+    /// An actor's `deinit` is nonisolated and may not touch a non-Sendable
+    /// stored property, and `isolated deinit`, which exists for exactly this,
+    /// makes the whole-module release build fail with "circular reference" while
+    /// the debug build succeeds. A plain final class has no such problem: it is
+    /// held as actor-isolated state, so it never escapes, and it closes the
+    /// handle when the store goes away.
+    private final class Handle {
+        let pointer: OpaquePointer
+
+        init(pointer: OpaquePointer) { self.pointer = pointer }
+
+        deinit { sqlite3_close_v2(pointer) }
+    }
+
     /// Beside `diagnostics.log`, because everything this app writes belongs in
     /// one directory you can delete in one gesture.
     public nonisolated static let defaultURL = URL.applicationSupportDirectory
@@ -42,7 +59,8 @@ public actor MistakeStore {
     /// this is a plain file you can delete, which is only true if you can find it.
     public nonisolated let url: URL
 
-    private var db: OpaquePointer?
+    private let handle: Handle
+    private var db: OpaquePointer { handle.pointer }
 
     /// SQLite's own name for "copy this string, I will outlive your buffer".
     /// It is a macro, so the Swift importer drops it and it has to be spelled by
@@ -75,7 +93,7 @@ public actor MistakeStore {
             sqlite3_close(handle)
             throw MistakeStoreError.couldNotOpen(message)
         }
-        db = handle
+        self.handle = Handle(pointer: handle)
         // WAL because the app is not the only thing that opens this file: the
         // README tells you to inspect it with the sqlite3 shell, and the default
         // journal mode makes that a lock fight.
@@ -83,8 +101,6 @@ public actor MistakeStore {
         try Self.exec(handle, "PRAGMA busy_timeout = 2000;")
         try Self.migrate(handle)
     }
-
-    isolated deinit { sqlite3_close(db) }
 
     // MARK: - Schema
 
