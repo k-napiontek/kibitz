@@ -1,14 +1,14 @@
 class Kibitz < Formula
   desc "Instant English writing feedback on macOS, explained in your own language"
   homepage "https://github.com/k-napiontek/kibitz"
-  url "https://github.com/k-napiontek/kibitz/archive/refs/tags/v0.2.0.tar.gz"
-  version "0.2.0"
-  sha256 "9eb5c8a59fadebed0e167a69ab9e057f2294a0fd1d1eb7eec62ee86de0f9d7c3"
+  url "https://github.com/k-napiontek/kibitz/archive/refs/tags/v0.2.1.tar.gz"
+  version "0.2.1"
+  sha256 "a0905f8e2124823f4f6ccc6542f5f2b5e9f3f3748a93e449b7ed335aa3979a5d"
   license "MIT"
 
   bottle do
-    root_url "https://github.com/k-napiontek/kibitz/releases/download/v0.2.0"
-    sha256 cellar: :any_skip_relocation, arm64_tahoe: "61557a2929743943a8640d36ea414a3b44da91985a8293c4e341e444a9a5b5d5"
+    root_url "https://github.com/k-napiontek/kibitz/releases/download/v0.2.1"
+    sha256 cellar: :any_skip_relocation, arm64_tahoe: "94412c791f3f707a748c992eab7464e43d56d896139a4e99fbfe540ee0e54c1e"
   end
 
   depends_on arch: :arm64
