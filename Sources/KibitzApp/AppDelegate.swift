@@ -59,6 +59,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private static let hotkeyLabel = "\u{2318}\u{21E7}E"
 
+    /// From the bundle, so a `brew upgrade` moves it without a code change.
+    /// "dev" when running the bare executable outside an .app, which is what
+    /// `swift run` does.
+    private static var version: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Notice level, so `log show` keeps it. Diagnosing "nothing happened"
         // without a record of whether the hotkey even fired is guesswork.
@@ -320,6 +327,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Without this, AppKit enables any item whose target responds to its
         // action, and every `isEnabled` set below is quietly ignored.
         menu.autoenablesItems = false
+        // Which build this is. A bug report that cannot name a version costs
+        // more time than this line will ever cost screen space.
+        let title = NSMenuItem(title: "kibitz \(Self.version)", action: nil, keyEquivalent: "")
+        title.isEnabled = false
+        menu.addItem(title)
         let event = NSMenuItem(title: lastEvent, action: nil, keyEquivalent: "")
         event.isEnabled = false
         menu.addItem(event)
