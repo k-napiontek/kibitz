@@ -14,13 +14,10 @@ struct PopupView: View {
     let onDragChanged: (CGSize) -> Void
     let onDragEnded: () -> Void
 
-    private var spans: [SentenceDiff.Span] {
-        SentenceDiff.spans(original: original, corrected: verdict.corrected)
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            correction
+            CorrectionText(original: original, corrected: verdict.corrected)
+                .font(.body)
             if !verdict.whyL1.isEmpty {
                 Text(verdict.whyL1)
                     .font(.callout)
@@ -45,22 +42,6 @@ struct PopupView: View {
                 .onChanged { onDragChanged($0.translation) }
                 .onEnded { _ in onDragEnded() }
         )
-    }
-
-    /// Built as one AttributedString so the changed words can carry their own
-    /// weight and colour without concatenating Text, which macOS 26 deprecates.
-    private var correction: some View {
-        var result = AttributedString()
-        for span in spans {
-            var piece = AttributedString(span.text)
-            piece.foregroundColor = span.isChanged ? .primary : .secondary
-            piece.inlinePresentationIntent = span.isChanged ? .stronglyEmphasized : nil
-            result.append(piece)
-        }
-        return Text(result)
-            .font(.body)
-            .textSelection(.enabled)
-            .fixedSize(horizontal: false, vertical: true)
     }
 
     private var footer: some View {
