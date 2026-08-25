@@ -49,14 +49,26 @@ public struct ClaudeCodeProvider: ModelProvider {
     /// Returns the full response so callers can record real cost and latency
     /// rather than estimating them.
     public func run(sentence: String, previous: String?) async throws -> ClaudeCodeResponse {
-        let result = try await Subprocess.run(
-            executable: executableURL,
-            arguments: arguments(for: sentence, previous: previous),
-            timeout: .seconds(30),
-            workingDirectory: try? Self.scratchWorkingDirectory(),
-            environment: childEnvironment
-        )
-        return try ClaudeCodeResponseParser.parse(result.stdout)
+        do {
+            let result = try await Subprocess.run(
+                executable: executableURL,
+                arguments: arguments(for: sentence, previous: previous),
+                timeout: .seconds(30),
+                workingDirectory: try? Self.scratchWorkingDirectory(),
+                environment: childEnvironment
+            )
+            return try ClaudeCodeResponseParser.parse(result.stdout)
+        } catch SubprocessError.nonZeroExit(let code, let stderr, let stdout) {
+            // The CLI still prints a usable JSON body when it fails, so prefer its
+            // own explanation over the exit code.
+            if let response = try? ClaudeCodeResponseParser.parse(stdout) {
+                return response
+            }
+            if let reported = ClaudeCodeResponseParser.reportedMessage(in: stdout) {
+                throw ClaudeCodeParseError.cliReportedError(reported)
+            }
+            throw SubprocessError.nonZeroExit(code: code, stderr: stderr, stdout: stdout)
+        }
     }
 
     /// An empty directory for the CLI to run in.
@@ -100,7 +112,10 @@ public enum SubprocessError: Error, Equatable {
     /// Carries what was actually received. Returning partial output as if it
     /// were whole surfaced later as a confusing parse failure instead.
     case timedOut(seconds: Double, bytesReceived: Int, stderr: String)
-    case nonZeroExit(code: Int32, stderr: String)
+    /// Carries stdout as well: `claude -p --output-format json` reports its real
+    /// failure reason there and still exits non-zero, so discarding it reduces
+    /// every such failure to a bare "exited 1".
+    case nonZeroExit(code: Int32, stderr: String, stdout: Data)
 }
 
 struct SubprocessResult: Sendable {
@@ -172,7 +187,8 @@ enum Subprocess {
         guard process.terminationStatus == 0 else {
             throw SubprocessError.nonZeroExit(
                 code: process.terminationStatus,
-                stderr: String(stderrText.prefix(500))
+                stderr: String(stderrText.prefix(500)),
+                stdout: out
             )
         }
         return SubprocessResult(

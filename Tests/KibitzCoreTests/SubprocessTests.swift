@@ -47,7 +47,7 @@ struct SubprocessTests {
             )
             Issue.record("expected a failure")
         } catch let error as SubprocessError {
-            guard case .nonZeroExit(let code, let stderr) = error else {
+            guard case .nonZeroExit(let code, let stderr, _) = error else {
                 Issue.record("expected .nonZeroExit, got \(error)")
                 return
             }
@@ -112,8 +112,28 @@ struct SubprocessTests {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         #expect(pwd.hasSuffix(directory.lastPathComponent))
     }
-}
 
+    @Test("a non-zero exit still carries stdout, because the CLI reports errors there")
+    func nonZeroExitCarriesStdout() async throws {
+        // `claude -p --output-format json` writes its real failure reason as JSON
+        // on stdout and exits non-zero anyway. Throwing away stdout turned every
+        // such failure into a bare "exited 1" with nothing to act on.
+        do {
+            _ = try await Subprocess.run(
+                executable: shell,
+                arguments: ["-c", #"printf '{"is_error":true,"result":"usage limit reached"}'; exit 1"#],
+                timeout: .seconds(5)
+            )
+            Issue.record("expected a failure")
+        } catch let error as SubprocessError {
+            guard case .nonZeroExit(_, _, let stdout) = error else {
+                Issue.record("expected .nonZeroExit, got \(error)")
+                return
+            }
+            #expect(String(decoding: stdout, as: UTF8.self).contains("usage limit reached"))
+        }
+    }
+}
 @Suite("Sandbox directory")
 struct SandboxDirectoryTests {
 
