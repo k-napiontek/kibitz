@@ -47,7 +47,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case idle, checking, error(String)
     }
 
-    private let hotkeyLabel = "\u{2318}\u{21E7}E"
+    private static let hotkeyLabel = "\u{2318}\u{21E7}E"
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Notice level, so `log show` keeps it. Diagnosing "nothing happened"
@@ -108,11 +108,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DiagnosticLog.write("check: begin")
         checkInFlight = true
         defer { checkInFlight = false }
+        if provider == nil {
+            // A missing provider is often transient - a Keychain prompt that went
+            // unanswered, most of all - so pressing the hotkey again has to be a
+            // real second chance rather than a replay of the same error.
+            DiagnosticLog.write("check: no provider, resolving again")
+            setUpProvider()
+        }
         guard let provider else {
             // Returning silently here is what made this look like a hang: the menu
             // sat on "Checking..." while nothing was running.
-            DiagnosticLog.write("check: NO PROVIDER, prompt failed to load")
-            lastEvent = providerError ?? "Coaching prompt could not be loaded"
+            DiagnosticLog.write("check: NO PROVIDER, \(providerError ?? "unknown")")
+            lastEvent = providerError ?? "No backend is configured"
             state = .error(lastEvent)
             return
         }
@@ -185,7 +192,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 verdict: verdict,
                 original: sentence,
                 at: snapshot.anchor,
-                hotkeyLabel: hotkeyLabel
+                hotkeyLabel: Self.hotkeyLabel
             ) { [weak self] in
                 guard let self, let pending = self.pending else { return }
                 self.apply(pending)
@@ -231,7 +238,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         lastEventItem = event
         menu.addItem(.separator())
         menu.addItem(
-            withTitle: "Check now  \(hotkeyLabel)",
+            withTitle: "Check now  \(Self.hotkeyLabel)",
             action: #selector(checkNow), keyEquivalent: ""
         ).target = self
         menu.addItem(.separator())
@@ -309,7 +316,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         modelMenuItem?.isEnabled = backend == .deepseek
         modelMenuItem?.submenu?.items.forEach { $0.isEnabled = backend == .deepseek }
-        removeKeyItem?.isEnabled = (try? keys.read()) != nil
+        removeKeyItem?.isEnabled = keys.exists()
     }
 
     @objc private func selectBackend(_ sender: NSMenuItem) {
@@ -412,6 +419,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private static func explain(_ error: Error) -> String {
         if case ProviderResolutionError.noAPIKey = error {
             return "No DeepSeek key. Set one from the menu, or switch back to the subscription."
+        }
+        if case KeychainError.userCancelled = error {
+            // Expected after every rebuild: the Keychain ACL is bound to the
+            // exact binary, so a fresh build is a stranger to its own key.
+            return "Keychain access was declined. Press \(hotkeyLabel) again and click Always Allow."
         }
         if let error = error as? DeepSeekError {
             switch error {
