@@ -295,6 +295,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             withTitle: "Review mistakes...",
             action: #selector(openReview), keyEquivalent: ""
         ).target = self
+        menu.addItem(makeLogMenuItem())
         menu.addItem(.separator())
         menu.addItem(makeBackendMenuItem())
         menu.addItem(makeModelMenuItem())
@@ -319,6 +320,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         item.menu = menu
         statusItem = item
         refreshBackendMenu()
+    }
+
+    /// The README promises the log is a plain file you can delete whenever you
+    /// like. That is only true if you do not have to know a path to do it.
+    private func makeLogMenuItem() -> NSMenuItem {
+        let submenu = NSMenu()
+        submenu.autoenablesItems = false
+        submenu.addItem(
+            withTitle: "Reveal in Finder", action: #selector(revealLog), keyEquivalent: ""
+        ).target = self
+        submenu.addItem(
+            withTitle: "Delete the mistake log...", action: #selector(deleteLog), keyEquivalent: ""
+        ).target = self
+        let item = NSMenuItem(title: "Mistake log", action: nil, keyEquivalent: "")
+        item.submenu = submenu
+        return item
+    }
+
+    @objc private func revealLog() {
+        let url = MistakeStore.defaultURL
+        // Selecting a file that is not there opens a Finder window on nothing,
+        // which reads as the app being broken rather than the log being empty.
+        if FileManager.default.fileExists(atPath: url.path) {
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+        } else {
+            NSWorkspace.shared.activateFileViewerSelecting([url.deletingLastPathComponent()])
+        }
+    }
+
+    @objc private func deleteLog() {
+        let alert = NSAlert()
+        alert.messageText = "Delete the mistake log?"
+        alert.informativeText = "Every correction kibitz has recorded will be removed, and the weekly review will start again from empty. This cannot be undone."
+        alert.addButton(withTitle: "Delete")
+        alert.addButton(withTitle: "Cancel")
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        guard let mistakes else {
+            lastEvent = "There is no mistake log to delete"
+            return
+        }
+        Task {
+            do {
+                try await mistakes.deleteEverything()
+                lastEvent = "Mistake log deleted"
+                DiagnosticLog.write("log: deleted on request")
+            } catch {
+                lastEvent = "Could not delete the mistake log: \(error)"
+                DiagnosticLog.write("log: FAILED to delete, \(error)")
+            }
+        }
     }
 
     private func makeBackendMenuItem() -> NSMenuItem {
