@@ -127,6 +127,9 @@ Everything lives in the menu bar icon:
 
 ## Install
 
+> **Not released yet.** The tap is empty until the first `v*` tag is built, so
+> the command below does not work today. Delete this note when v0.2.0 ships.
+
 ```
 brew install k-napiontek/tap/kibitz
 kibitz
