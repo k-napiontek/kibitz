@@ -15,6 +15,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let filter = VerdictFilter(config: .default)
     private let settings = BackendSettings()
     private let keys = APIKeyStore()
+    /// Optional because a database that will not open must cost you the log, not
+    /// the correction you pressed the hotkey for.
+    private var mistakes: MistakeStore?
 
     private var statusItem: NSStatusItem?
     /// Shown in the menu. The unified log is not readable everywhere, so the app
@@ -55,6 +58,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // without a record of whether the hotkey even fired is guesswork.
         logger.notice("kibitz launched")
         DiagnosticLog.write("=== launched ===")
+        openMistakeLog()
         PopupController.clearLegacyPinnedPosition()
         setUpStatusItem()
         setUpProvider()
@@ -67,6 +71,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     // MARK: - Wiring
+
+    private func openMistakeLog() {
+        do {
+            mistakes = try MistakeStore(url: MistakeStore.defaultURL)
+            DiagnosticLog.write("log: opened \(MistakeStore.defaultURL.path)")
+        } catch {
+            mistakes = nil
+            DiagnosticLog.write("log: FAILED to open, \(error)")
+        }
+    }
+
+    /// Every verdict, not only the ones that reach the popup. `VerdictFilter`
+    /// decides what interrupts the writer and nothing else, so the muted
+    /// categories and the correct sentences have to be recorded from here,
+    /// before its guard.
+    ///
+    /// Detached and swallowed, because a slow or broken disk must never sit
+    /// between the model answering and the popup appearing.
+    private func record(_ verdict: Verdict, original: String, app: String) {
+        guard let mistakes else { return }
+        Task.detached(priority: .utility) {
+            do {
+                try await mistakes.record(
+                    verdict, original: original, app: app.isEmpty ? nil : app, at: Date()
+                )
+            } catch {
+                DiagnosticLog.write("log: FAILED to record, \(error)")
+            }
+        }
+    }
 
     /// Re-run whenever the backend, the model or the key changes, so the next
     /// hotkey press uses what the menu says.
@@ -186,6 +220,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             logger.notice("""
                 check finished, verdict \(verdict.outcome.rawValue, privacy: .public)                 category \(verdict.category.rawValue, privacy: .public)                 sentence \(sentence, privacy: .private)
                 """)
+
+            record(verdict, original: sentence, app: focused.appBundleID)
 
             guard filter.apply(verdict) == .show else {
                 logger.notice("popup suppressed by the category filter")
