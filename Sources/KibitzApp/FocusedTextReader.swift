@@ -15,7 +15,12 @@ struct FocusedSnapshot {
 /// Electron apps often expose the element but not its contents, terminals expose
 /// nothing at all. Everything here is best effort, and `CheckTargetResolver`
 /// decides what to do with the result.
+@MainActor
 struct FocusedTextReader {
+
+    /// Held across checks, so an app is asked to expose its tree once rather
+    /// than on every hotkey press.
+    private let activator = AccessibilityActivator()
 
     /// Anything taller than this is a document, not a line of text. Chrome
     /// reports the whole page as the focused field, and anchoring to a 900 point
@@ -28,7 +33,7 @@ struct FocusedTextReader {
     /// `anchorRect()` after the model answered some five seconds later. They
     /// resolved the focused element independently, so clicking elsewhere during
     /// a check moved the popup to whatever was focused by then.
-    func capture() -> FocusedSnapshot {
+    func capture() async -> FocusedSnapshot {
         let bundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "unknown"
 
         // Hard stop. Secure input means a password field is active somewhere, and
@@ -37,14 +42,18 @@ struct FocusedTextReader {
             return blind(bundleID: bundleID, isSecureField: true)
         }
 
-        nudgeElectron(bundleID: bundleID)
+        var candidate = focusedElement()
 
-        let systemWide = AXUIElementCreateSystemWide()
-        AXUIElementSetMessagingTimeout(systemWide, 1.0)
+        // Chromium and Electron withhold their content until a client asks, and
+        // an app that has nothing to say looks identical to an empty field. Ask,
+        // then look again.
+        if withholding(candidate), let pid = frontmostPID(), activator.activate(pid: pid) {
+            DiagnosticLog.write("accessibility: asked \(bundleID) to expose its tree")
+            candidate = await waitForTree()
+            DiagnosticLog.write("accessibility: after asking, focused=\(candidate != nil)")
+        }
 
-        guard let value = copy(systemWide, kAXFocusedUIElementAttribute),
-              let focused = element(value)
-        else {
+        guard let focused = candidate else {
             return blind(bundleID: bundleID, isSecureField: false)
         }
 
@@ -73,6 +82,52 @@ struct FocusedTextReader {
             ),
             anchor: anchor
         )
+    }
+
+    /// The focused element, asking the frontmost app directly when the
+    /// system-wide query comes back empty.
+    ///
+    /// The two disagree more often than they should: the system-wide element
+    /// answers nothing for an app whose tree is not built, while the application
+    /// element still answers for its own chrome.
+    private func focusedElement() -> AXUIElement? {
+        let systemWide = AXUIElementCreateSystemWide()
+        AXUIElementSetMessagingTimeout(systemWide, 1.0)
+        if let value = copy(systemWide, kAXFocusedUIElementAttribute),
+           let focused = element(value) {
+            return focused
+        }
+        guard let pid = frontmostPID() else { return nil }
+        let app = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(app, 1.0)
+        guard let value = copy(app, kAXFocusedUIElementAttribute) else { return nil }
+        return element(value)
+    }
+
+    /// Whether this is worth asking an app about: no element at all, or one that
+    /// exposes neither a value nor a selection.
+    private func withholding(_ focused: AXUIElement?) -> Bool {
+        guard let focused else { return true }
+        return copy(focused, kAXValueAttribute) == nil
+            && copy(focused, kAXSelectedTextAttribute) == nil
+    }
+
+    /// Chromium builds the tree asynchronously, so the element is not there the
+    /// instant the attribute is written. Polling for it is the difference
+    /// between a first hotkey press that works and one that reports an empty
+    /// field. Sleeps rather than blocks, so the menu bar stays live.
+    private func waitForTree() async -> AXUIElement? {
+        let deadline = Date().addingTimeInterval(0.6)
+        while Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(50))
+            let candidate = focusedElement()
+            if !withholding(candidate) { return candidate }
+        }
+        return focusedElement()
+    }
+
+    private func frontmostPID() -> pid_t? {
+        NSWorkspace.shared.frontmostApplication?.processIdentifier
     }
 
     /// Records what an app exposes when it has no focused element at all.
@@ -285,14 +340,6 @@ struct FocusedTextReader {
     }
 
     // MARK: - Accessibility plumbing
-
-    /// Electron apps expose nothing until an assistive client asks them to.
-    private func nudgeElectron(bundleID: String) {
-        guard let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier else { return }
-        let app = AXUIElementCreateApplication(pid)
-        AXUIElementSetMessagingTimeout(app, 1.0)
-        AXUIElementSetAttributeValue(app, "AXManualAccessibility" as CFString, kCFBooleanTrue)
-    }
 
     private func selectionRange(of element: AXUIElement) -> CFRange? {
         guard let value = copy(element, kAXSelectedTextRangeAttribute),
