@@ -81,4 +81,17 @@ struct CheckTargetResolverTests {
     func nothingReadable() {
         #expect(CheckTargetResolver.resolve(focused()) == .nothing(.noReadableText))
     }
+
+    @Test("a password field never degrades to noReadableText")
+    func secureFieldKeepsItsOwnReason() {
+        // This is what gates the clipboard fallback: kibitz copies a selection
+        // only on `noReadableText`, so a secure field resolving to that reason
+        // would send a synthesized Cmd+C at a password.
+        let secure = FocusedText(
+            value: nil, selectedText: nil, caretOffset: nil,
+            appBundleID: "com.apple.Safari", isSecureField: true
+        )
+
+        #expect(CheckTargetResolver.resolve(secure) == .nothing(.secureField))
+    }
 }

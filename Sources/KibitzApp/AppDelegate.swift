@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let hotkeys = HotkeyManager()
     private let reader = FocusedTextReader()
     private let corrector = Corrector()
+    private let selectionReader = SelectionReader()
     private let popup = PopupController()
     private let filter = VerdictFilter(config: .default)
     private let settings = BackendSettings()
@@ -142,12 +143,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // hotkey and the measurement, so a click during the check moved the popup
         // to whatever was focused by then. The popup belongs to the sentence that
         // was checked.
-        let snapshot = reader.capture()
+        let snapshot = await reader.capture()
         let focused = snapshot.text
         DiagnosticLog.write("""
             check: read app=\(focused.appBundleID) secure=\(focused.isSecureField)             valueChars=\(focused.value?.count ?? -1) selChars=\(focused.selectedText?.count ?? -1)             caret=\(focused.caretOffset.map(String.init) ?? "nil") anchor=\(snapshot.anchor.source.rawValue)
             """)
-        let target = CheckTargetResolver.resolve(focused)
+        var target = CheckTargetResolver.resolve(focused)
+
+        // Last resort, for apps that expose no tree at all even after being
+        // asked. Deliberately gated on `noReadableText`: a secure field resolves
+        // to its own case and never reaches the clipboard.
+        if case .nothing(.noReadableText) = target, let copied = selectionReader.copySelection() {
+            DiagnosticLog.write("check: read \(copied.count) chars from the selection instead")
+            target = .selection(copied)
+        }
 
         let sentence: String
         let previous: String?
