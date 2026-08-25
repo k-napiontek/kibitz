@@ -1,0 +1,41 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    # arm64 by default, which is the only architecture kibitz supports.
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Show the toolchain
+        run: swift --version && xcodebuild -version
+
+      - name: Test
+        run: ./scripts/test.sh
+
+      # Not redundant with the tests. `isolated deinit` once shipped a
+      # whole-module release failure that the debug build and the entire suite
+      # passed straight through, so the release build is its own signal.
+      - name: Release build
+        run: swift build -c release
+
+      - name: Bundle the app
+        run: CODESIGN_IDENTITY="-" ./scripts/bundle.sh build/Kibitz.app
+
+      - name: Check the bundle is complete
+        run: |
+          set -euo pipefail
+          codesign --verify --deep --strict --verbose=2 build/Kibitz.app
+          # The prompt resources are loaded at runtime, and an app without them
+          # cannot check a single sentence. Cheap to assert, expensive to miss.
+          test -f build/Kibitz.app/Contents/Resources/Kibitz_KibitzCore.bundle/Resources/system-prompt.md
+          test -f build/Kibitz.app/Contents/Resources/Kibitz_KibitzCore.bundle/Resources/profiles/pl.md
