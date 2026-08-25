@@ -21,12 +21,20 @@ final class ReviewModel {
 
     private let store: MistakeStore?
     private let settings: ReviewSettings
-    /// Fixed on the first load and reused for every reload.
+    /// The span this review covers, fixed on the first load and reused for
+    /// every reload.
     ///
     /// Recomputing it would collapse a month-long catch-up window down to seven
     /// days the moment the stamp is written, and the rows the review had just
     /// listed would vanish out from under the export.
-    private var window: (since: Date, now: Date)?
+    ///
+    /// Not observed: it is bookkeeping, and nothing on screen reads it.
+    @ObservationIgnored private var window: Window?
+
+    struct Window {
+        let since: Date
+        let now: Date
+    }
 
     init(store: MistakeStore?, settings: ReviewSettings = ReviewSettings()) {
         self.store = store
@@ -40,9 +48,9 @@ final class ReviewModel {
             failure = "The mistake log could not be opened, so nothing was recorded."
             return
         }
-        let window = window ?? openWindow()
+        let span = window ?? openWindow()
         do {
-            let digest = try await store.review(since: window.since, now: window.now)
+            let digest = try await store.review(since: span.since, now: span.now)
             self.digest = digest
             self.failure = nil
             // Everything on the list is by definition not a card yet, so all of
@@ -57,12 +65,12 @@ final class ReviewModel {
     /// than at either call site. Opening the review by hand on Tuesday therefore
     /// moves the automatic one to next Tuesday, which is the honest reading of
     /// "once a week".
-    private func openWindow() -> (since: Date, now: Date) {
+    private func openWindow() -> Window {
         let now = Date()
-        let window = (since: ReviewSchedule.windowStart(lastReview: settings.lastReview, now: now), now: now)
-        self.window = window
+        let span = Window(since: ReviewSchedule.windowStart(lastReview: settings.lastReview, now: now), now: now)
+        window = span
         settings.lastReview = now
-        return window
+        return span
     }
 
     func selectAll() { selected = Set(digest?.selectableIDs ?? []) }
