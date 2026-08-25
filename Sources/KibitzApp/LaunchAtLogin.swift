@@ -18,6 +18,19 @@ enum LaunchAtLogin {
         SMAppService.mainApp.status == .enabled
     }
 
+    /// For the diagnostics log. A login item that quietly stopped working after
+    /// an upgrade is invisible otherwise: the app simply never appears one
+    /// morning, and nothing anywhere says why.
+    static var statusDescription: String {
+        switch SMAppService.mainApp.status {
+        case .notRegistered: "notRegistered"
+        case .enabled: "enabled"
+        case .requiresApproval: "requiresApproval"
+        case .notFound: "notFound"
+        @unknown default: "unknown"
+        }
+    }
+
     static func enable() throws {
         try SMAppService.mainApp.register()
     }

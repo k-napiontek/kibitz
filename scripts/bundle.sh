@@ -11,8 +11,14 @@ cd "$(dirname "$0")/.."
 VERSION="${VERSION:-0.1.0}"
 APP="${1:-build/Kibitz.app}"
 
-swift build -c release --product KibitzApp
-BIN="$(swift build -c release --show-bin-path)"
+# --disable-sandbox is needed to build inside Homebrew. SwiftPM evaluates
+# Package.swift under its own sandbox-exec profile, and that cannot nest inside
+# Homebrew's build sandbox: it fails with "sandbox_apply: Operation not
+# permitted" before a single file compiles. This package has no dependencies, so
+# there is no third-party manifest for that sandbox to be protecting anyone from.
+SWIFT_FLAGS="-c release --disable-sandbox"
+swift build $SWIFT_FLAGS --product KibitzApp
+BIN="$(swift build $SWIFT_FLAGS --show-bin-path)"
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"

@@ -288,6 +288,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// the login items the first time it runs. Doing it on every launch instead
     /// would quietly undo the toggle, which is why the attempt is remembered.
     private func registerAtLoginOnFirstLaunch() {
+        DiagnosticLog.write("login: status \(LaunchAtLogin.statusDescription)")
         guard startup.shouldRegisterAtLaunch(isEnabled: LaunchAtLogin.isEnabled) else { return }
         startup.didAttemptRegistration = true
         do {
