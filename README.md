@@ -73,8 +73,7 @@ quiet. You can open it whenever you like from the menu bar.
 ## Requirements
 
 - macOS 26 or later, Apple Silicon
-- Xcode Command Line Tools, because kibitz compiles on your machine. Run
-  `xcode-select --install` if you do not have them.
+- Homebrew, which is how kibitz is installed
 - **A Claude Max subscription or a DeepSeek API key.** kibitz has no hosted
   backend. You bring your own model access and you pay for your own usage.
 
@@ -128,21 +127,46 @@ Everything lives in the menu bar icon:
 
 ## Install
 
-Not released yet. When it is:
-
 ```
 brew install k-napiontek/tap/kibitz
+kibitz
 ```
 
-kibitz is distributed as source and built on your Mac, not as a prebuilt
-binary. That is deliberate. A downloaded binary has to be notarised by Apple to
-open without a warning, which requires a paid developer account, and the
-alternative is telling you to run `xattr -dr com.apple.quarantine` on an app
-that reads what you type. That is the same instruction malware gives, so this
-project does not ask it of you.
+The first command pours a prebuilt app. Nothing is compiled on your machine and
+there is no Gatekeeper warning to click through. The second one starts it, which
+is the one thing a package manager should not do for you.
 
-Building locally sidesteps the question entirely. The tradeoff is that you need
-the Command Line Tools installed, which most developers already do.
+kibitz then asks for the Accessibility permission, which it needs to read the
+sentence you just finished, and adds itself to your login items. Turn that off
+whenever you like from the menu bar: **Start at login**.
+
+### Why this is a formula and not a cask
+
+A downloaded app has to be notarised by Apple to open without a warning, and
+notarisation needs a paid developer account. The usual workaround is to tell you
+to run `xattr -dr com.apple.quarantine` on it, which is the same instruction
+malware gives, so this project will not ask that of you. Homebrew agrees: it
+dropped `--no-quarantine` in 4.7 and stops supporting casks that fail Gatekeeper
+on 1 September 2026.
+
+None of that applies here, because the quarantine attribute is something
+**casks** apply to downloads. A formula bottle is a tarball that `brew` extracts,
+the same as every command line tool you have installed, so it is never marked
+and Gatekeeper's notarisation check never fires. You can confirm it rather than
+take my word for it:
+
+```
+xattr $(brew --prefix)/opt/kibitz/Kibitz.app     # prints no com.apple.quarantine
+```
+
+The app is signed ad-hoc, which is all Apple Silicon asks of code that is not
+quarantined. The bottle is built in GitHub Actions on a `v*` tag and the formula
+is generated from what was actually published, so the checksums in the tap
+cannot drift from the artifact.
+
+If you are on hardware the bottle was not built for, `brew` falls back to
+compiling from source and you will need the Command Line Tools. Everyone on a
+supported Mac pours the prebuilt one.
 
 ## Permissions and privacy
 
@@ -182,9 +206,14 @@ asks for it. Here is exactly what it does:
   whenever you like - **Mistake log > Delete the mistake log...** in the menu
   bar does it, and kibitz keeps working with a fresh one.
 
-macOS ties the Accessibility grant to the exact binary, so **after an update you
-will be asked to grant it again.** That is macOS behaving correctly, not a bug.
-It stays granted between updates.
+macOS ties the Accessibility grant to the exact binary, so **after a
+`brew upgrade` you will be asked to grant it again.** That is macOS behaving
+correctly, not a bug. It stays granted between updates. Your login item is not
+affected: it follows the app rather than the version it was created from.
+
+Uninstalling is `brew uninstall kibitz`. That removes the app and nothing else -
+your mistake log under `~/Library/Application Support/kibitz` and your login item
+are yours to keep or remove, and the menu offers to delete the log for you.
 
 ## Adding your language
 
@@ -201,7 +230,7 @@ See `CONTRIBUTING.md`.
 ```
 git clone https://github.com/k-napiontek/kibitz
 cd kibitz
-./scripts/test.sh          # 206 tests
+./scripts/test.sh          # 211 tests
 swift build -c release
 ```
 
