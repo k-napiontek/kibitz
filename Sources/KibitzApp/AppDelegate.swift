@@ -20,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var mistakes: MistakeStore?
     private let review = ReviewWindowController()
     private let reviewSettings = ReviewSettings()
+    private let startup = StartupSettings()
 
     private var statusItem: NSStatusItem?
     /// Shown in the menu. The unified log is not readable everywhere, so the app
@@ -31,6 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var modelItems: [DeepSeekModel: NSMenuItem] = [:]
     private var modelMenuItem: NSMenuItem?
     private var removeKeyItem: NSMenuItem?
+    private var loginItem: NSMenuItem?
     private var lastEvent = "No checks yet" { didSet { lastEventItem?.title = lastEvent } }
     private var provider: (any ModelProvider)?
     private var providerError: String?
@@ -73,6 +75,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         requestAccessibilityIfNeeded()
         startReviewTicker()
+        registerAtLoginOnFirstLaunch()
     }
 
     // MARK: - Wiring
@@ -271,6 +274,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    // MARK: - Login item
+
+    /// On by default, once. A menu bar tool that does nothing until you press a
+    /// hotkey is not worth launching by hand every morning, so it puts itself in
+    /// the login items the first time it runs. Doing it on every launch instead
+    /// would quietly undo the toggle, which is why the attempt is remembered.
+    private func registerAtLoginOnFirstLaunch() {
+        guard startup.shouldRegisterAtLaunch(isEnabled: LaunchAtLogin.isEnabled) else { return }
+        startup.didAttemptRegistration = true
+        do {
+            try LaunchAtLogin.enable()
+            DiagnosticLog.write("login: registered at first launch")
+        } catch {
+            // Not worth interrupting anyone over. The menu still offers it.
+            DiagnosticLog.write("login: FAILED to register, \(error)")
+        }
+        refreshBackendMenu()
+    }
+
+    @objc private func toggleLaunchAtLogin() {
+        do {
+            if LaunchAtLogin.isEnabled {
+                try LaunchAtLogin.disable()
+                lastEvent = "kibitz will not start at login"
+            } else {
+                try LaunchAtLogin.enable()
+                lastEvent = "kibitz will start at login"
+            }
+        } catch {
+            lastEvent = "Could not change the login item: \(error.localizedDescription)"
+            DiagnosticLog.write("login: FAILED to toggle, \(error)")
+        }
+        refreshBackendMenu()
+    }
+
     // MARK: - Status item
 
     private func setUpStatusItem() {
@@ -296,6 +334,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             action: #selector(openReview), keyEquivalent: ""
         ).target = self
         menu.addItem(makeLogMenuItem())
+        menu.addItem(.separator())
+        let login = NSMenuItem(
+            title: "Start at login", action: #selector(toggleLaunchAtLogin), keyEquivalent: ""
+        )
+        login.target = self
+        menu.addItem(login)
+        loginItem = login
         menu.addItem(.separator())
         menu.addItem(makeBackendMenuItem())
         menu.addItem(makeModelMenuItem())
@@ -424,6 +469,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         modelMenuItem?.isEnabled = backend == .deepseek
         modelMenuItem?.submenu?.items.forEach { $0.isEnabled = backend == .deepseek }
         removeKeyItem?.isEnabled = keys.exists()
+        // Read back from the system rather than from anything stored, so the
+        // checkmark still agrees after someone flips it in System Settings.
+        loginItem?.state = LaunchAtLogin.isEnabled ? .on : .off
     }
 
     @objc private func selectBackend(_ sender: NSMenuItem) {
