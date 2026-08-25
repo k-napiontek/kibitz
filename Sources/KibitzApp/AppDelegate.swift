@@ -42,6 +42,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Guards against overlapping checks. Two concurrent CLI processes competed
     /// badly enough to stretch a five second check to thirty seven.
     private var checkInFlight = false
+    /// Held so it can be cancelled, and so the loop is not started twice.
+    private var reviewTicker: Task<Void, Never>?
 
     private struct PendingCorrection {
         let verdict: Verdict
@@ -70,6 +72,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in self?.hotkeyPressed() }
         }
         requestAccessibilityIfNeeded()
+        startReviewTicker()
     }
 
     // MARK: - Wiring
@@ -455,6 +458,69 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.image = NSImage(systemSymbolName: "exclamationmark.bubble", accessibilityDescription: "error")
             button.toolTip = message
         }
+    }
+
+    // MARK: - The weekly review
+
+    /// Re-evaluates rather than counting down.
+    ///
+    /// A date comparison against the stored stamp means a laptop that spent the
+    /// week asleep finds the review due on the next tick instead of having
+    /// missed its slot, and it means the tick interval only bounds how late the
+    /// window can be, never whether it appears at all. Waking the lid checks
+    /// immediately so Monday morning does not wait out the rest of an hour.
+    private func startReviewTicker() {
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.showReviewIfDue() }
+        }
+        reviewTicker = Task { [weak self] in
+            while !Task.isCancelled {
+                await MainActor.run { self?.showReviewIfDue() }
+                try? await Task.sleep(for: .seconds(3600))
+            }
+        }
+    }
+
+    private func showReviewIfDue() {
+        switch ReviewSchedule.decide(lastReview: reviewSettings.lastReview, now: Date()) {
+        case .notYet:
+            return
+        case .setBaseline:
+            // First launch, or a stamp that cannot be true. Start the clock and
+            // stay quiet: a review window on day one has nothing in it.
+            reviewSettings.lastReview = Date()
+            DiagnosticLog.write("review: baseline set")
+        case .due:
+            // Stealing focus mid-check is exactly the interruption this app
+            // exists not to be. The next tick catches it.
+            guard !checkInFlight, !popup.isVisible else {
+                DiagnosticLog.write("review: due, deferred until the check finishes")
+                return
+            }
+            Task { await openReviewIfWorthIt() }
+        }
+    }
+
+    /// A due review with nothing in it moves the stamp and stays quiet. Opening
+    /// a window that says "nothing to review" is worse than not opening one, and
+    /// leaving the stamp alone would make the check fire every hour forever.
+    private func openReviewIfWorthIt() async {
+        guard let mistakes else {
+            reviewSettings.lastReview = Date()
+            return
+        }
+        let now = Date()
+        let since = ReviewSchedule.windowStart(lastReview: reviewSettings.lastReview, now: now)
+        let digest = try? await mistakes.review(since: since, now: now)
+        guard let digest, !digest.isEmpty else {
+            reviewSettings.lastReview = now
+            DiagnosticLog.write("review: due but empty, stayed quiet")
+            return
+        }
+        DiagnosticLog.write("review: opening, \(digest.selectableIDs.count) cards on offer")
+        openReview()
     }
 
     @objc private func openReview() {
