@@ -37,17 +37,25 @@ struct Corrector {
 
     /// Last resort. Only works when the text to replace is selected, which is
     /// exactly the case the Accessibility path could not handle.
+    ///
+    /// Declines when the clipboard holds anything but text, rather than reading
+    /// someone's copied photo or file to save it. Failing to apply a correction
+    /// is a far smaller cost than that.
     private func paste(_ correction: String) -> Outcome {
-        PasteboardGuard.preservingContents {
-            let board = NSPasteboard.general
-            board.clearContents()
-            board.setString(correction, forType: .string)
-            sendCommandV()
-            // The paste is asynchronous in the target app. Restoring the clipboard
-            // instantly would race it, so give the app a moment to read.
-            Thread.sleep(forTimeInterval: 0.15)
+        do {
+            try PasteboardGuard.borrowingTextClipboard {
+                let board = NSPasteboard.general
+                board.clearContents()
+                board.setString(correction, forType: .string)
+                sendCommandV()
+                // The paste is asynchronous in the target app. Restoring the
+                // clipboard instantly would race it, so give the app a moment.
+                Thread.sleep(forTimeInterval: 0.15)
+            }
+            return .applied
+        } catch {
+            return .failed
         }
-        return .applied
     }
 
     private func sendCommandV() {

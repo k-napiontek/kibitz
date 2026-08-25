@@ -49,9 +49,40 @@ public struct PromptTemplate: Sendable, Equatable {
     }
 }
 
+/// Used only to locate the bundle this type is compiled into.
+private final class BundleToken {}
+
 public enum BundledPrompt {
+
+    private static let bundleName = "Kibitz_KibitzCore.bundle"
+
+    /// Finds the resource bundle without relying on `Bundle.module`.
+    ///
+    /// SwiftPM's generated accessor looks beside the executable, which for an
+    /// app means the top level of the .app - a location code signing forbids
+    /// anything to occupy. Its fallback is an absolute path into the build
+    /// directory, which on a shipped app either does not exist or sits somewhere
+    /// macOS gates behind a privacy prompt. So look in the places an app can
+    /// actually put it, and treat `Bundle.module` as the last resort.
+    static var resourceBundle: Bundle {
+        let roots: [URL] = [
+            Bundle.main.resourceURL,
+            Bundle.main.bundleURL,
+            Bundle(for: BundleToken.self).resourceURL,
+            Bundle(for: BundleToken.self).bundleURL
+        ].compactMap { $0 }
+
+        for root in roots {
+            let candidate = root.appending(path: bundleName)
+            if FileManager.default.fileExists(atPath: candidate.path),
+               let bundle = Bundle(url: candidate) {
+                return bundle
+            }
+        }
+        return Bundle.module
+    }
     public static func systemPromptTemplate() throws -> PromptTemplate {
-        guard let url = Bundle.module.url(
+        guard let url = resourceBundle.url(
             forResource: "Resources/system-prompt",
             withExtension: "md"
         ) else {
@@ -63,7 +94,7 @@ public enum BundledPrompt {
     /// The interference patterns for one first language. Adding a language is
     /// a single new file under `Resources/profiles`.
     public static func profile(for language: NativeLanguage) throws -> String {
-        guard let url = Bundle.module.url(
+        guard let url = resourceBundle.url(
             forResource: "Resources/profiles/\(language.code)",
             withExtension: "md"
         ) else {
