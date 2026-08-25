@@ -47,7 +47,7 @@ struct Corrector {
                 let board = NSPasteboard.general
                 board.clearContents()
                 board.setString(correction, forType: .string)
-                sendCommandV()
+                Keystroke.commandV()
                 // The paste is asynchronous in the target app. Restoring the
                 // clipboard instantly would race it, so give the app a moment.
                 Thread.sleep(forTimeInterval: 0.15)
@@ -56,18 +56,6 @@ struct Corrector {
         } catch {
             return .failed
         }
-    }
-
-    private func sendCommandV() {
-        let source = CGEventSource(stateID: .combinedSessionState)
-        let v = CGKeyCode(9)
-        guard let down = CGEvent(keyboardEventSource: source, virtualKey: v, keyDown: true),
-              let up = CGEvent(keyboardEventSource: source, virtualKey: v, keyDown: false)
-        else { return }
-        down.flags = .maskCommand
-        up.flags = .maskCommand
-        down.post(tap: .cghidEventTap)
-        up.post(tap: .cghidEventTap)
     }
 
     private func focusedElement() -> AXUIElement? {
