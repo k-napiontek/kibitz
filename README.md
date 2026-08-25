@@ -127,10 +127,6 @@ Everything lives in the menu bar icon:
 
 ## Install
 
-> **Not released yet.** `Formula/kibitz.rb` appears when the first `v*` tag is
-> built, so the commands below do not work today. Delete this note when v0.2.0
-> ships.
-
 ```
 brew tap k-napiontek/kibitz https://github.com/k-napiontek/kibitz
 brew install kibitz
