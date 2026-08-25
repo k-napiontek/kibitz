@@ -15,12 +15,60 @@ struct Corpus: Decodable {
     let cases: [Case]
 }
 
-let path = CommandLine.arguments.dropFirst().first ?? "Corpus/corpus.json"
-let concurrency = Int(CommandLine.arguments.dropFirst(2).first ?? "4") ?? 4
+/// Reads `--name value` out of the arguments, leaving the positional path and
+/// concurrency where they were.
+func option(_ name: String, in arguments: inout [String]) -> String? {
+    guard let flag = arguments.firstIndex(of: "--\(name)"),
+          flag + 1 < arguments.count
+    else { return nil }
+    let value = arguments[flag + 1]
+    arguments.removeSubrange(flag...(flag + 1))
+    return value
+}
+
+var arguments = Array(CommandLine.arguments.dropFirst())
+let backendName = option("backend", in: &arguments)
+let modelName = option("model", in: &arguments)
+
+let path = arguments.first ?? "Corpus/corpus.json"
+let concurrency = Int(arguments.dropFirst().first ?? "4") ?? 4
+
+// An unrecognised name is a typo. Grading the wrong backend and calling it a
+// pass is worse than refusing to start.
+var backend: Backend?
+if let backendName {
+    guard let parsed = Backend(rawValue: backendName) else {
+        FileHandle.standardError.write(Data("unknown backend '\(backendName)'\n".utf8))
+        exit(2)
+    }
+    backend = parsed
+}
+var model: DeepSeekModel?
+if let modelName {
+    let named = modelName == "flash" ? DeepSeekModel.flash.rawValue
+        : modelName == "pro" ? DeepSeekModel.pro.rawValue
+        : modelName
+    guard let parsed = DeepSeekModel(rawValue: named) else {
+        FileHandle.standardError.write(Data("unknown model '\(modelName)'\n".utf8))
+        exit(2)
+    }
+    model = parsed
+}
 
 let corpus = try JSONDecoder().decode(Corpus.self, from: Data(contentsOf: URL(fileURLWithPath: path)))
-let prompt = try BundledPrompt.renderedSystemPrompt(for: .polish)
-let provider = ClaudeCodeProvider(systemPrompt: prompt)
+/// The two ways to get a key into the Keychain, in the order worth trying.
+let keyHelp = """
+no DeepSeek key in the Keychain. Set one from the kibitz menu, or:
+  security add-generic-password -U -s com.knapiontek.kibitz -a deepseek -w <key>
+"""
+
+let provider: any ModelProvider
+do {
+    provider = try ProviderResolver.make(backend: backend, model: model)
+} catch ProviderResolutionError.noAPIKey {
+    FileHandle.standardError.write(Data((keyHelp + "\n").utf8))
+    exit(2)
+}
 
 struct Outcome: Sendable {
     let index: Int
@@ -33,7 +81,7 @@ struct Outcome: Sendable {
     let costUSD: Double
 }
 
-print("running \(corpus.cases.count) cases, \(concurrency) at a time")
+print("running \(corpus.cases.count) cases, \(concurrency) at a time, on \(provider.displayName)")
 let started = Date()
 
 let outcomes: [Outcome] = await withTaskGroup(of: Outcome.self) { group in
