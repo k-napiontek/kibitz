@@ -200,10 +200,13 @@ asks for it. Here is exactly what it does:
   used to do nothing on a web page. The first time a read fails in an app,
   kibitz asks that app to expose its tree - the same request VoiceOver makes.
   Apps that already expose their text are never asked, and no app is asked twice.
-- **When an app exposes nothing at all**, terminals in particular, kibitz falls
-  back to copying your selection with a synthesized Cmd+C, then puts your
-  clipboard back. It happens only when you press the hotkey, only when
-  Accessibility read nothing, and never when the clipboard holds anything but
+- **When an app exposes no selection**, kibitz falls back to copying yours with
+  a synthesized Cmd+C, then puts your clipboard back. That covers apps which
+  expose nothing at all, and terminals, which answer their whole visible screen
+  as one block of text with no selection in it. A screen like that is never
+  checked and never sent anywhere: with nothing selected the hotkey says so
+  instead of grading a line of shell output you did not write. The copy happens
+  only when you press the hotkey, and never when the clipboard holds anything but
   text - an image or a file is left untouched and the copy is not even attempted.
 - Sentences that pass those checks are sent to whichever backend you selected,
   Anthropic or DeepSeek, and nowhere else. There is no telemetry and no server

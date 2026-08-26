@@ -57,7 +57,9 @@ struct CheckTargetResolverTests {
     func sentenceAtCaret() {
         let text = "We merged the refactor. The tests was failing."
 
-        let target = CheckTargetResolver.resolve(focused(value: text, caretOffset: text.count))
+        let target = CheckTargetResolver.resolve(
+            focused(value: text, selectedText: "", caretOffset: text.count)
+        )
 
         #expect(target == .sentence("The tests was failing.", previous: "We merged the refactor."))
     }
@@ -66,15 +68,23 @@ struct CheckTargetResolverTests {
     func noCaretUsesLastSentence() {
         let text = "First one here. Second one here. I am interested of this."
 
-        let target = CheckTargetResolver.resolve(focused(value: text, caretOffset: nil))
+        let target = CheckTargetResolver.resolve(
+            focused(value: text, selectedText: "", caretOffset: nil)
+        )
 
         #expect(target == .sentence("I am interested of this.", previous: "Second one here."))
     }
 
     @Test("an empty field has nothing to check")
     func emptyFieldIsNothing() {
-        #expect(CheckTargetResolver.resolve(focused(value: "")) == .nothing(.noReadableText))
-        #expect(CheckTargetResolver.resolve(focused(value: "   \n ")) == .nothing(.noReadableText))
+        #expect(
+            CheckTargetResolver.resolve(focused(value: "", selectedText: ""))
+                == .nothing(.noReadableText)
+        )
+        #expect(
+            CheckTargetResolver.resolve(focused(value: "   \n ", selectedText: ""))
+                == .nothing(.noReadableText)
+        )
     }
 
     @Test("no value and no selection means the app exposed nothing readable")
@@ -84,14 +94,36 @@ struct CheckTargetResolverTests {
 
     @Test("a password field never degrades to noReadableText")
     func secureFieldKeepsItsOwnReason() {
-        // This is what gates the clipboard fallback: kibitz copies a selection
-        // only on `noReadableText`, so a secure field resolving to that reason
-        // would send a synthesized Cmd+C at a password.
+        // This is what gates the clipboard fallback: every other reason allows
+        // a synthesized Cmd+C, so a secure field degrading to one of them would
+        // fire that copy at a password.
         let secure = FocusedText(
             value: nil, selectedText: nil, caretOffset: nil,
             appBundleID: "com.apple.Safari", isSecureField: true
         )
 
         #expect(CheckTargetResolver.resolve(secure) == .nothing(.secureField))
+        #expect(NothingReason.secureField.allowsClipboardFallback == false)
+        #expect(NothingReason.noSelectionExposed.allowsClipboardFallback)
+        #expect(NothingReason.noReadableText.allowsClipboardFallback)
+    }
+
+    @Test("a value from an element with no selection at all is never checked")
+    func screenDumpIsNotAField() {
+        // Ghostty: the whole visible screen as the value, no AXSelectedText, and
+        // a caret pinned at 0. Checking the sentence at that caret would grade a
+        // line of shell output nobody wrote and send it to the model.
+        let screen = """
+            karol@mac ~/Documents/learn-english %  swift test
+            Test Suite 'All tests' passed.
+            Is project ready for devops like setup monitoring for learning
+            """
+
+        let target = CheckTargetResolver.resolve(focused(
+            value: screen, selectedText: nil, caretOffset: 0,
+            appBundleID: "com.mitchellh.ghostty"
+        ))
+
+        #expect(target == .nothing(.noSelectionExposed))
     }
 }
