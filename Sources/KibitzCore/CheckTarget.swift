@@ -24,10 +24,21 @@ public struct FocusedText: Sendable, Equatable {
 public enum NothingReason: String, Sendable, Equatable {
     case secureField
     case noReadableText
+    /// The element answered a value but has no notion of a selection, so what it
+    /// answered is a screen dump rather than a field someone is typing in.
+    case noSelectionExposed
+
+    /// Whether borrowing the clipboard is worth trying after this. A password
+    /// field is never copied, whatever else might be selected on screen.
+    public var allowsClipboardFallback: Bool { self != .secureField }
 }
 
 public enum CheckTarget: Sendable, Equatable {
     case selection(String)
+    /// A selection that Accessibility never exposed, taken with a synthesized
+    /// copy. Kept apart from `.selection` because the app it came from has no
+    /// editable field to write a correction back into.
+    case copiedSelection(String)
     case sentence(String, previous: String?)
     case nothing(NothingReason)
 }
@@ -47,6 +58,14 @@ public enum CheckTargetResolver {
         else {
             return .nothing(.noReadableText)
         }
+
+        // An element that answers no AXSelectedText at all has no notion of a
+        // selection, which means its value is not a field being edited. Ghostty
+        // answers eight hundred characters of terminal screen with the caret
+        // pinned at 0, so the sentence at that caret is a random line someone
+        // never wrote. Leave it to the clipboard rather than check the wrong
+        // text and send a stranger's terminal to the model.
+        guard focused.selectedText != nil else { return .nothing(.noSelectionExposed) }
 
         // With no caret position, treat it as sitting at the end. That yields the
         // last sentence, which is what someone just finished typing. Sending the

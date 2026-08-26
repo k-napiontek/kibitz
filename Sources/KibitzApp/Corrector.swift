@@ -9,9 +9,13 @@ import KibitzCore
 /// person gets their own clipboard back.
 struct Corrector {
 
-    enum Outcome { case applied, failed }
+    enum Outcome { case applied, copied, failed }
 
     func apply(correction: String, replacing original: String, target: CheckTarget) -> Outcome {
+        // Handled before an element is even resolved: the text came from a
+        // synthesized copy, so there is no field here to write into.
+        if case .copiedSelection = target { return handOff(correction) }
+
         guard let focused = focusedElement() else { return .failed }
 
         switch target {
@@ -19,7 +23,7 @@ struct Corrector {
             if set(focused, kAXSelectedTextAttribute, to: correction) { return .applied }
         case .sentence:
             if replaceInValue(focused, original: original, with: correction) { return .applied }
-        case .nothing:
+        case .copiedSelection, .nothing:
             return .failed
         }
         return paste(correction)
@@ -33,6 +37,21 @@ struct Corrector {
         else { return false }
         value.replaceSubrange(range, with: correction)
         return set(element, kAXValueAttribute, to: value)
+    }
+
+    /// Hands the correction over instead of writing it anywhere.
+    ///
+    /// Reached only for text taken with a synthesized copy, which means the app
+    /// exposed no editable field at all. A paste there does not replace the
+    /// original: a terminal has no writable selection, so Cmd+V would drop the
+    /// correction next to what someone typed and garble the line. Leaving it on
+    /// the clipboard is the one thing that is always useful, and unlike the
+    /// borrow below the text is meant to stay there - that is what was asked for.
+    private func handOff(_ correction: String) -> Outcome {
+        let board = NSPasteboard.general
+        board.clearContents()
+        board.setString(correction, forType: .string)
+        return .copied
     }
 
     /// Last resort. Only works when the text to replace is selected, which is

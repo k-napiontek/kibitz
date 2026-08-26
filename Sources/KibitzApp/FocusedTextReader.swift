@@ -12,9 +12,10 @@ struct FocusedSnapshot {
 /// Reads whatever the focused text field is willing to expose.
 ///
 /// Coverage varies enormously between apps: native apps expose value and caret,
-/// Electron apps often expose the element but not its contents, terminals expose
-/// nothing at all. Everything here is best effort, and `CheckTargetResolver`
-/// decides what to do with the result.
+/// Electron apps often expose the element but not its contents, and terminals
+/// answer their whole visible screen as one value with no selection in it.
+/// Everything here is best effort, and `CheckTargetResolver` decides what to do
+/// with the result - including when to distrust a value it was handed.
 @MainActor
 struct FocusedTextReader {
 

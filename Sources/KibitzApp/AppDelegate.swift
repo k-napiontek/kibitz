@@ -199,18 +199,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             """)
         var target = CheckTargetResolver.resolve(focused)
 
-        // Last resort, for apps that expose no tree at all even after being
-        // asked. Deliberately gated on `noReadableText`: a secure field resolves
-        // to its own case and never reaches the clipboard.
-        if case .nothing(.noReadableText) = target, let copied = selectionReader.copySelection() {
-            DiagnosticLog.write("check: read \(copied.count) chars from the selection instead")
-            target = .selection(copied)
+        // Last resort, for apps with no editable text to read: no tree at all
+        // even after being asked, or a screen dump with no selection in it. A
+        // secure field resolves to its own case and never reaches the clipboard.
+        if case .nothing(let reason) = target, reason.allowsClipboardFallback {
+            // Sampled before the copy: the hotkey's own Cmd and Shift are still
+            // held this early, and an app that sees Cmd+Shift+C rather than
+            // Cmd+C copies nothing. Only worth writing down when nothing lands.
+            let flags = CGEventSource.flagsState(.combinedSessionState).rawValue
+            if let copied = selectionReader.copySelection() {
+                DiagnosticLog.write("clipboard: read \(copied.count) chars from the selection")
+                target = .copiedSelection(copied)
+            } else {
+                DiagnosticLog.write("clipboard: no copy landed after \(reason.rawValue), flags=\(flags)")
+            }
         }
 
         let sentence: String
         let previous: String?
         switch target {
-        case .selection(let text):
+        case .selection(let text), .copiedSelection(let text):
             sentence = text
             previous = nil
         case .sentence(let text, let context):
@@ -220,9 +228,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DiagnosticLog.write("check: nothing to check (\(reason.rawValue))")
             state = .idle
             logger.notice("nothing to check: \(reason.rawValue, privacy: .public)")
-            lastEvent = reason == .secureField
-                ? "Skipped: a password field was focused"
-                : "Nothing readable in that field"
+            switch reason {
+            case .secureField:
+                lastEvent = "Skipped: a password field was focused"
+            case .noReadableText:
+                lastEvent = "Nothing readable in that field"
+            case .noSelectionExposed:
+                // Terminals land here with nothing selected: they expose their
+                // screen but no selection, so there is nothing to work from.
+                lastEvent = "Select the text first - this app exposes nothing to read"
+            }
             return
         }
 
@@ -274,11 +289,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             replacing: pending.original,
             target: pending.target
         )
-        lastEvent = outcome == .applied
-            ? "Correction applied"
-            : "Could not write the correction back"
-        if outcome == .failed {
-            state = .error("Could not write the correction back")
+        switch outcome {
+        case .applied:
+            lastEvent = "Correction applied"
+        case .copied:
+            lastEvent = "Correction copied - paste it where you want it"
+        case .failed:
+            lastEvent = "Could not write the correction back"
+            state = .error(lastEvent)
         }
     }
 
